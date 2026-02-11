@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2, Search } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2, Search, Shirt, Ruler, List as ListIcon, Copy } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -21,6 +21,9 @@ const App: React.FC = () => {
   
   // Navigation State
   const [activeTab, setActiveTab] = useState<'SCANNER' | 'LIST'>('SCANNER');
+  
+  // List Tab Sub-navigation
+  const [listMode, setListMode] = useState<'PRINTS' | 'SIZES' | 'ITEMS'>('PRINTS');
   const [listSearch, setListSearch] = useState('');
 
   // Feedback State
@@ -86,65 +89,62 @@ const App: React.FC = () => {
     setSupplyId('');
   };
 
-  // --- Aggregation Logic for List View ---
-  const groupedOrders = useMemo(() => {
-    if (orders.length === 0) return [];
+  // --- Aggregation Logic for Dashboard ---
 
-    const groups: Record<string, { 
-      key: string;
-      vendorCode: string;
-      size: string;
-      title: string;
-      brand: string;
-      photoUrl: string;
-      total: number;
-      done: number;
-      isComplete: boolean;
+  // 1. Group by Prints (VendorCode)
+  const statsByPrint = useMemo(() => {
+    const groups: Record<string, {
+        vendorCode: string;
+        photoUrl: string;
+        title: string;
+        brand: string;
+        total: number;
+        sizes: Record<string, number>;
     }> = {};
 
     orders.forEach(order => {
-      // Create a unique key based on VendorCode + Size
-      const key = `${order.vendorCode}::${order.size || 'NOSIZE'}`;
-      
-      if (!groups[key]) {
-        groups[key] = {
-          key,
-          vendorCode: order.vendorCode,
-          size: order.size || '',
-          title: order.title,
-          brand: order.brand || '',
-          photoUrl: order.photoUrl,
-          total: 0,
-          done: 0,
-          isComplete: false
-        };
-      }
-
-      groups[key].total += 1;
-      if (order.status === 'done') {
-        groups[key].done += 1;
-      }
+        const vCode = order.vendorCode || 'Без артикула';
+        if (!groups[vCode]) {
+            groups[vCode] = {
+                vendorCode: vCode,
+                photoUrl: order.photoUrl,
+                title: order.title,
+                brand: order.brand || '',
+                total: 0,
+                sizes: {}
+            };
+        }
+        groups[vCode].total += 1;
+        const s = order.size || '-';
+        groups[vCode].sizes[s] = (groups[vCode].sizes[s] || 0) + 1;
     });
 
-    return Object.values(groups).sort((a, b) => {
-      // Sort: Incomplete first
-      const aDone = a.done === a.total;
-      const bDone = b.done === b.total;
-      if (aDone === bDone) return a.vendorCode.localeCompare(b.vendorCode);
-      return aDone ? 1 : -1;
-    });
+    // Sort by Total Count (Popularity) DESC
+    return Object.values(groups).sort((a, b) => b.total - a.total);
   }, [orders]);
 
-  const filteredGroups = useMemo(() => {
-    if (!listSearch) return groupedOrders;
+  // 2. Group by Sizes (For KIZ)
+  const statsBySize = useMemo(() => {
+      const sizes: Record<string, number> = {};
+      orders.forEach(order => {
+          const s = order.size || 'Б/Р';
+          sizes[s] = (sizes[s] || 0) + 1;
+      });
+      // Sort by count DESC
+      return Object.entries(sizes).sort((a, b) => b[1] - a[1]);
+  }, [orders]);
+
+  // 3. Flat List (Original)
+  const filteredItems = useMemo(() => {
+    if (!listSearch) return orders;
     const q = listSearch.toLowerCase();
-    return groupedOrders.filter(g => 
-      g.vendorCode.toLowerCase().includes(q) || 
-      g.title.toLowerCase().includes(q) || 
-      g.brand.toLowerCase().includes(q) ||
-      g.size.toLowerCase().includes(q)
+    return orders.filter(o => 
+       o.vendorCode.toLowerCase().includes(q) || 
+       o.stickerId.includes(q) ||
+       o.size?.toLowerCase().includes(q)
     );
-  }, [groupedOrders, listSearch]);
+  }, [orders, listSearch]);
+
 
   // --- Handlers ---
   const handleLoadOrders = async (e: React.FormEvent) => {
@@ -435,96 +435,134 @@ const App: React.FC = () => {
                </div>
             )}
 
-            {/* --- TAB 2: PICK LIST --- */}
+            {/* --- TAB 2: LIST / DASHBOARD --- */}
             {activeTab === 'LIST' && (
                <div className="p-4 flex flex-col gap-3 min-h-full">
-                  <div className="flex items-center justify-between px-1 mb-1">
-                     <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider">Задание на сборку</h3>
+                  
+                  {/* Sub-Navigation Switch */}
+                  <div className="flex p-1 bg-gray-200/80 rounded-xl mb-2">
+                     <button 
+                       onClick={() => setListMode('PRINTS')}
+                       className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${listMode === 'PRINTS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}
+                     >
+                       <Shirt className="w-3.5 h-3.5" /> Принты
+                     </button>
+                     <button 
+                       onClick={() => setListMode('SIZES')}
+                       className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${listMode === 'SIZES' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}
+                     >
+                       <Ruler className="w-3.5 h-3.5" /> Размеры
+                     </button>
+                     <button 
+                       onClick={() => setListMode('ITEMS')}
+                       className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${listMode === 'ITEMS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}
+                     >
+                       <ListIcon className="w-3.5 h-3.5" /> Список
+                     </button>
                   </div>
 
-                  {/* Search Filter */}
-                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 sticky top-0 z-10">
-                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                        <input 
-                           type="text" 
-                           placeholder="Поиск по артикулу, размеру..." 
-                           className="w-full pl-9 pr-8 py-2 bg-gray-50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-fuchsia-100 transition-all placeholder:text-gray-400"
-                           value={listSearch}
-                           onChange={e => setListSearch(e.target.value)}
-                        />
-                        {listSearch && (
-                           <button onClick={() => setListSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
-                              <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
-                           </button>
-                        )}
-                     </div>
-                  </div>
-                  
-                  {filteredGroups.length === 0 ? (
-                     <div className="text-center py-10 text-gray-400">
-                        {listSearch ? 'Ничего не найдено' : 'Список пуст'}
-                     </div>
-                  ) : (
-                     filteredGroups.map((group) => {
-                        const isDone = group.done === group.total;
-                        return (
-                           <div 
-                              key={group.key}
-                              className={`bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4 transition-all ${isDone ? 'opacity-60 grayscale-[0.5]' : ''}`}
-                           >
-                              {/* Photo Thumb */}
-                              <div className="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 relative">
+                  {/* --- MODE: PRINTS (GROUP BY VENDOR CODE) --- */}
+                  {listMode === 'PRINTS' && (
+                     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                        {statsByPrint.map((group) => (
+                           <div key={group.vendorCode} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-3 relative overflow-hidden">
+                              {/* Left: Image */}
+                              <div className="w-20 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
                                  {group.photoUrl ? (
                                     <img src={group.photoUrl} className="w-full h-full object-cover" alt="" />
                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-gray-300">
-                                       <Box className="w-6 h-6" />
-                                    </div>
-                                 )}
-                                 {isDone && (
-                                    <div className="absolute inset-0 bg-emerald-500/50 flex items-center justify-center">
-                                       <CheckCircle2 className="text-white w-8 h-8 drop-shadow-md" />
-                                    </div>
+                                    <div className="w-full h-full flex items-center justify-center text-gray-300"><Box /></div>
                                  )}
                               </div>
-
-                              {/* Info */}
-                              <div className="flex-1 flex flex-col justify-center min-w-0">
-                                 <div className="flex items-start justify-between">
-                                    <div className="w-full">
-                                       <div className="text-xs text-gray-400 font-bold line-clamp-1">{group.brand}</div>
-                                       <div className="font-bold text-gray-900 leading-tight truncate text-lg">{group.vendorCode}</div>
+                              
+                              {/* Center: Info */}
+                              <div className="flex-1 flex flex-col min-w-0">
+                                 <div className="flex justify-between items-start">
+                                    <div className="pr-2">
+                                       <div className="text-[10px] uppercase text-gray-400 font-bold truncate">{group.brand}</div>
+                                       <div className="font-extrabold text-gray-900 leading-tight text-lg line-clamp-2">{group.vendorCode}</div>
+                                    </div>
+                                    <div className="bg-fuchsia-50 text-fuchsia-700 font-black text-2xl px-2 py-1 rounded-lg min-w-[3rem] text-center">
+                                       {group.total}
                                     </div>
                                  </div>
                                  
-                                 <div className="mt-2 flex items-center gap-3">
-                                    {group.size && (
-                                       <div className="bg-gray-100 px-2 py-0.5 rounded-md text-sm font-bold text-gray-700 border border-gray-200 shrink-0">
-                                          {group.size}
+                                 {/* Size Breakdown */}
+                                 <div className="mt-auto pt-2 flex flex-wrap gap-1.5">
+                                    {Object.entries(group.sizes).map(([size, count]) => (
+                                       <div key={size} className="bg-gray-100 rounded px-1.5 py-0.5 text-xs font-medium border border-gray-200 flex gap-1">
+                                          <span className="text-gray-500">{size}:</span>
+                                          <span className="text-gray-900 font-bold">{count}</span>
                                        </div>
-                                    )}
-                                    <div className="text-xs text-gray-400 truncate flex-1">
-                                       {group.title}
-                                    </div>
+                                    ))}
                                  </div>
                               </div>
-
-                              {/* Counter */}
-                              <div className="flex flex-col items-center justify-center pl-2 border-l border-gray-100 w-14 shrink-0">
-                                 <span className={`text-2xl font-black ${isDone ? 'text-emerald-500' : 'text-fuchsia-600'}`}>
-                                    {group.done}
-                                 </span>
-                                 <div className="h-px w-6 bg-gray-200 my-0.5"></div>
-                                 <span className="text-gray-400 font-bold text-sm">
-                                    {group.total}
-                                 </span>
-                              </div>
                            </div>
-                        );
-                     })
+                        ))}
+                     </div>
                   )}
-                  {/* Padding for bottom nav */}
+
+                  {/* --- MODE: SIZES (KIZ ORDERING) --- */}
+                  {listMode === 'SIZES' && (
+                     <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-bottom-2">
+                        {/* Header for Copy (Optional Future Feature) */}
+                        <div className="col-span-2 bg-fuchsia-50 p-3 rounded-xl border border-fuchsia-100 flex items-center justify-between">
+                            <span className="text-fuchsia-800 text-sm font-bold">Сводка для заказа кодов</span>
+                            <div className="p-1.5 bg-white rounded-full text-fuchsia-600">
+                                <ClipboardList className="w-4 h-4" />
+                            </div>
+                        </div>
+
+                        {statsBySize.map(([size, count]) => (
+                           <div key={size} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center">
+                              <div className="text-4xl font-black text-gray-900 mb-1">{count}</div>
+                              <div className="text-sm font-bold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{size}</div>
+                           </div>
+                        ))}
+                     </div>
+                  )}
+
+                  {/* --- MODE: ITEMS (FLAT LIST) --- */}
+                  {listMode === 'ITEMS' && (
+                     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-3">
+                         {/* Search Filter */}
+                        <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 sticky top-0 z-10">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                <input 
+                                type="text" 
+                                placeholder="Поиск..." 
+                                className="w-full pl-9 pr-8 py-2 bg-gray-50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-fuchsia-100 transition-all placeholder:text-gray-400"
+                                value={listSearch}
+                                onChange={e => setListSearch(e.target.value)}
+                                />
+                                {listSearch && (
+                                <button onClick={() => setListSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+                                    <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+                                </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {filteredItems.map(item => (
+                            <div key={item.id} className={`bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex gap-3 ${item.status === 'done' ? 'opacity-60' : ''}`}>
+                                <div className="w-12 h-16 bg-gray-100 rounded flex-shrink-0 overflow-hidden relative">
+                                    {item.photoUrl && <img src={item.photoUrl} className="w-full h-full object-cover" />}
+                                    {item.status === 'done' && <div className="absolute inset-0 bg-emerald-500/40 flex items-center justify-center"><CheckCircle2 className="text-white w-6 h-6"/></div>}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-sm text-gray-900 truncate">{item.vendorCode}</div>
+                                    <div className="text-xs text-gray-500 truncate">{item.title}</div>
+                                    <div className="mt-1 flex items-center gap-2">
+                                        <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] font-bold">{item.size || '-'}</span>
+                                        <span className="text-[10px] text-gray-400 font-mono">{item.stickerId}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                     </div>
+                  )}
+
                   <div className="h-10"></div>
                </div>
             )}
