@@ -41,6 +41,9 @@ const App: React.FC = () => {
   const [overlayStatus, setOverlayStatus] = useState<'SUCCESS' | 'ERROR' | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
+  // --- Scan Queue for Fast Input ---
+  const [scanQueue, setScanQueue] = useState<string[]>([]);
+
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   useEffect(() => {
@@ -164,12 +167,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleScan = async (rawCode: string) => {
-    // NOTE: Removed `overlayStatus !== null` check to allow fast continuous scanning
-    if (isLoading) return; 
-    
+  // --- SCAN PROCESSING LOGIC ---
+  const processScan = async (rawCode: string) => {
     const code = cleanBarcode(rawCode);
-    console.log("Scanned:", code);
+    console.log("Processing:", code);
 
     if (code.toLowerCase() === 'reset' || code.toLowerCase() === 'сброс') {
       setActiveOrder(null);
@@ -255,6 +256,25 @@ const App: React.FC = () => {
         showFeedback('ERROR', 'ОШИБКА ИЛИ ДУБЛЬ');
       }
       setIsLoading(false);
+    }
+  };
+
+  // Queue Processor
+  useEffect(() => {
+    if (!isLoading && scanQueue.length > 0) {
+      const nextCode = scanQueue[0];
+      setScanQueue(prev => prev.slice(1));
+      processScan(nextCode);
+    }
+  }, [isLoading, scanQueue]);
+
+  // Main Handler (adds to queue)
+  const handleScanInput = (code: string) => {
+    // If idle, process immediately. If busy, queue it.
+    if (!isLoading) {
+      processScan(code);
+    } else {
+      setScanQueue(prev => [...prev, code]);
     }
   };
 
@@ -377,8 +397,8 @@ const App: React.FC = () => {
 
                   <div className="bg-white/80 backdrop-blur rounded-2xl p-2 sticky bottom-0">
                      <ScannerInput 
-                        onScan={handleScan} 
-                        isDisabled={isLoading} 
+                        onScan={handleScanInput} 
+                        isDisabled={false} 
                         mode={activeOrder ? 'active' : 'neutral'}
                         placeholder={activeOrder ? "СКАНИРУЙТЕ КИЗ" : "Жду стикер WB..."}
                      />

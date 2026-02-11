@@ -27,6 +27,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   // When scanner sends Enter, we submit.
   
   const focusInput = () => {
+      // We only focus if camera is NOT showing. 
+      // We ignore 'isDisabled' for focus if we want to allow buffering, 
+      // but if the parent really wants to disable interaction, we respect it.
+      // However, for the "Queue" feature, we'll keep isDisabled false in App.tsx.
       if (!showCamera && !isDisabled && inputRef.current) {
           inputRef.current.focus();
       }
@@ -34,16 +38,19 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
 
   useEffect(() => {
     focusInput();
-    // Re-focus on window focus or clicks anywhere
+    
+    // Aggressive refocus for Kiosk Mode
     const handleRefocus = () => {
-         // Small delay to allow copy-paste or other UI interactions
-         setTimeout(focusInput, 10);
+         setTimeout(focusInput, 50);
     };
+    
+    const interval = setInterval(focusInput, 2000); // Periodic check
     
     window.addEventListener('click', handleRefocus);
     window.addEventListener('focus', handleRefocus);
     
     return () => {
+        clearInterval(interval);
         window.removeEventListener('click', handleRefocus);
         window.removeEventListener('focus', handleRefocus);
     };
@@ -69,7 +76,6 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
           try { await scannerRef.current.stop(); scannerRef.current.clear(); } catch(e){}
       }
       setShowCamera(false);
-      // Return focus to input
       setTimeout(focusInput, 100);
   };
 
@@ -132,6 +138,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
             autoComplete="off"
             autoCorrect="off"
             spellCheck="false"
+            autoFocus
         />
 
         {/* Camera Toggle */}
