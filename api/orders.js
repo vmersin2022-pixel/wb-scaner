@@ -16,12 +16,11 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Получаем список заказов через /api/v3/orders
-    // Проходимся по страницам (пагинация), чтобы найти заказы нашей поставки
+    // --- 1. Получение заказов (FBS API) ---
     let allOrders = [];
     let next = 0;
     let fetchCount = 0;
-    const MAX_REQUESTS = 10; // Глубина поиска ~10,000 последних заказов
+    const MAX_REQUESTS = 10; 
 
     do {
         const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`;
@@ -35,13 +34,11 @@ export default async function handler(req, res) {
         const data = await ordersRes.json();
         const chunk = data.orders || [];
         allOrders = [...allOrders, ...chunk];
-        
         next = data.next;
         fetchCount++;
-
     } while (next && next !== 0 && fetchCount < MAX_REQUESTS);
 
-    // 2. Фильтрация по ID поставки
+    // --- 2. Фильтрация по поставке ---
     let filteredOrders = [];
     if (supplyId && supplyId.trim() !== '') {
       const target = supplyId.trim().toLowerCase();
@@ -54,19 +51,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ 
         orders: [], 
         map: {}, 
-        message: 'Заказы по данной поставке не найдены (проверено за последние 30 дней)' 
+        message: 'Заказы по данной поставке не найдены' 
       });
     }
 
-    // 3. Получение стикеров
+    // --- 3. Получение стикеров (FBS API) ---
     const orderIds = filteredOrders.map((o) => o.id);
     const chunks = [];
-    for (let i = 0; i < orderIds.length; i += 100) {
-      chunks.push(orderIds.slice(i, i + 100));
-    }
+    for (let i = 0; i < orderIds.length; i += 100) chunks.push(orderIds.slice(i, i + 100));
 
     let allStickers = [];
-
     for (const chunk of chunks) {
       const stickersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/stickers?type=svg&width=58&height=40`;
       const stickersRes = await fetch(stickersUrl, {
@@ -77,61 +71,92 @@ export default async function handler(req, res) {
 
       if (stickersRes.ok) {
         const stickersData = await stickersRes.json();
-        // В разных версиях API поле может быть 'stickers' или 'data'
-        if (stickersData.stickers) {
-          allStickers = [...allStickers, ...stickersData.stickers];
-        } else if (stickersData.data) {
-          allStickers = [...allStickers, ...stickersData.data];
-        }
+        if (stickersData.stickers) allStickers.push(...stickersData.stickers);
+        else if (stickersData.data) allStickers.push(...stickersData.data);
       }
-      await new Promise(r => setTimeout(r, 100)); 
+      await new Promise(r => setTimeout(r, 50)); // Анти-флуд
     }
 
-    // 4. Сборка карты баркодов
+    // --- 4. Обогащение данными (Public Card API) ---
+    // Собираем уникальные nmId для запроса инфо о товарах
+    const nmIds = [...new Set(filteredOrders.map(o => o.nmId))];
+    const productInfoMap = {};
+
+    // Разбиваем на пачки по 50 nmId для запроса к card.wb.ru
+    const nmChunks = [];
+    for (let i = 0; i < nmIds.length; i += 50) nmChunks.push(nmIds.slice(i, i + 50));
+
+    for (const chunk of nmChunks) {
+        try {
+            const nmString = chunk.join(';');
+            // Используем публичное API карточек WB v2
+            const cardUrl = `https://card.wb.ru/cards/v2/detail?appType=1&curr=rub&dest=-1257786&nm=${nmString}`;
+            const cardRes = await fetch(cardUrl);
+            if (cardRes.ok) {
+                const cardData = await cardRes.json();
+                const products = cardData.data?.products || [];
+                products.forEach(p => {
+                    productInfoMap[p.id] = {
+                        title: p.name,
+                        brand: p.brand,
+                        // Определяем хост для картинки (basket-01, basket-02 и т.д.)
+                        imageUrl: getWbImageUrl(p.id)
+                    };
+                });
+            }
+        } catch (e) {
+            console.error("Error fetching card info", e);
+        }
+    }
+
+    // --- 5. Сборка ответа ---
     const mergedOrders = [];
     const barcodeMap = {};
 
     filteredOrders.forEach((ro) => {
+      // Ищем стикер
       const stickerObj = allStickers.find((s) => s.orderId === ro.id);
       
-      // Базовый ключ - ID заказа
-      barcodeMap[String(ro.id)] = ro.id;
-
+      // Ищем инфо о товаре
+      const info = productInfoMap[ro.nmId] || {};
+      
+      // Определяем штрихкод для карты
+      let mapKeySticker = String(ro.id);
       let displaySticker = String(ro.id);
 
       if (stickerObj) {
-        // А. Используем поле 'barcode' (например "*C4Qe/fqT")
-        // Это самое важное поле для сканирования QR с этикетки
         if (stickerObj.barcode) {
             const raw = stickerObj.barcode.trim();
-            barcodeMap[raw] = ro.id;
-            // Также добавляем вариант без звездочек (cleanBarcode на фронте может их убирать)
-            barcodeMap[raw.replace(/^\*+|\*+$/g, '')] = ro.id;
+            mapKeySticker = raw;
             displaySticker = raw;
-        }
-
-        // Б. Используем комбинацию partA + partB (старый формат или запасной)
-        if (stickerObj.partA && stickerObj.partB) {
+            
+            // Добавляем в карту и "чистый" вариант, и сырой
+            barcodeMap[raw] = ro.id;
+            barcodeMap[raw.replace(/^\*+|\*+$/g, '')] = ro.id;
+        } else if (stickerObj.partA && stickerObj.partB) {
             const composite = `${stickerObj.partA}${stickerObj.partB}`;
+            mapKeySticker = composite;
+            displaySticker = composite;
             barcodeMap[composite] = ro.id;
-            // Если нет barcode, показываем это
-            if (!stickerObj.barcode) displaySticker = composite;
         }
       }
       
-      const vol = Math.floor(ro.nmId / 100000);
-      const part = Math.floor(ro.nmId / 1000);
-      const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
+      // Всегда добавляем ID заказа как резервный ключ
+      barcodeMap[String(ro.id)] = ro.id;
 
+      // Формируем финальный объект
       const order = {
         id: ro.id,
         stickerId: displaySticker,
         article: ro.nmId ? ro.nmId.toString() : 'N/A',
-        title: `Товар ${ro.nmId}`, 
+        // Если есть название из публичного API, берем его, иначе генерим заглушку
+        title: info.title || `Товар ${ro.nmId}`, 
+        brand: info.brand || '',
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
-        photoUrl,
+        // Если есть фото из публичного API, берем его, иначе старый метод
+        photoUrl: info.imageUrl || getWbImageUrl(ro.nmId),
         isSgtinRequired: true,
-        status: 'pending' // Можно доработать проверку статуса, если нужно
+        status: 'pending' 
       };
 
       mergedOrders.push(order);
@@ -143,4 +168,32 @@ export default async function handler(req, res) {
     console.error(error);
     return res.status(500).json({ error: error.message });
   }
+}
+
+// Хелпер для определения правильного домена корзины WB
+function getWbImageUrl(nmId) {
+    const vol = Math.floor(nmId / 100000);
+    const part = Math.floor(nmId / 1000);
+    
+    let host = 'basket-01.wb.ru';
+    if (vol >= 0 && vol <= 143) host = 'basket-01.wb.ru';
+    else if (vol >= 144 && vol <= 287) host = 'basket-02.wb.ru';
+    else if (vol >= 288 && vol <= 431) host = 'basket-03.wb.ru';
+    else if (vol >= 432 && vol <= 719) host = 'basket-04.wb.ru';
+    else if (vol >= 720 && vol <= 1007) host = 'basket-05.wb.ru';
+    else if (vol >= 1008 && vol <= 1061) host = 'basket-06.wb.ru';
+    else if (vol >= 1062 && vol <= 1115) host = 'basket-07.wb.ru';
+    else if (vol >= 1116 && vol <= 1169) host = 'basket-08.wb.ru';
+    else if (vol >= 1170 && vol <= 1313) host = 'basket-09.wb.ru';
+    else if (vol >= 1314 && vol <= 1601) host = 'basket-10.wb.ru';
+    else if (vol >= 1602 && vol <= 1655) host = 'basket-11.wb.ru';
+    else if (vol >= 1656 && vol <= 1919) host = 'basket-12.wb.ru';
+    else if (vol >= 1920 && vol <= 2045) host = 'basket-13.wb.ru';
+    else if (vol >= 2046 && vol <= 2189) host = 'basket-14.wb.ru';
+    else if (vol >= 2190 && vol <= 2405) host = 'basket-15.wb.ru';
+    else if (vol >= 2406 && vol <= 2621) host = 'basket-16.wb.ru';
+    else if (vol >= 2622 && vol <= 2837) host = 'basket-17.wb.ru';
+    else host = 'basket-18.wb.ru'; // Fallback для новых
+
+    return `https://${host}/vol${vol}/part${part}/${nmId}/images/c516x688/1.jpg`;
 }

@@ -221,14 +221,24 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Active Task Info */}
+            {/* Active Task Info - LARGE PHOTO VIEW */}
             {activeOrder && (
-              <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg flex gap-4 mb-2">
-                 <img src={activeOrder.photoUrl} className="w-16 h-20 object-cover rounded bg-white" alt="Товар" />
-                 <div>
-                   <div className="text-xs font-bold text-blue-600 uppercase mb-1">Ожидается КИЗ</div>
-                   <div className="font-bold leading-tight">{activeOrder.title}</div>
-                   <div className="text-sm text-gray-500">{activeOrder.article}</div>
+              <div className="bg-white border-2 border-blue-500 shadow-lg p-4 rounded-xl flex flex-col items-center text-center gap-3 mb-4">
+                 <div className="relative w-48 h-64 bg-gray-100 rounded-lg overflow-hidden">
+                   <img 
+                     src={activeOrder.photoUrl} 
+                     className="w-full h-full object-cover" 
+                     alt="Товар" 
+                   />
+                 </div>
+                 
+                 <div className="w-full">
+                   <div className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-1">Товар найден</div>
+                   <h2 className="text-xl font-bold leading-tight mb-1">{activeOrder.title}</h2>
+                   <div className="text-gray-500 text-sm">Арт: {activeOrder.article}</div>
+                   {activeOrder.stickerId && (
+                     <div className="text-xs text-gray-400 mt-1 font-mono">{activeOrder.stickerId}</div>
+                   )}
                  </div>
               </div>
             )}
@@ -238,8 +248,8 @@ const App: React.FC = () => {
               onScan={handleScan} 
               isDisabled={isLoading} 
               placeholder={activeOrder 
-                ? ">>> 2. Теперь сканируй КИЗ (DataMatrix) <<<" 
-                : "1. Сканируй QR стикера WB -> 2. Сканируй КИЗ"}
+                ? ">>> 2. ТЕПЕРЬ СКАНИРУЙ КИЗ <<<" 
+                : "1. Сканируй QR стикера WB"}
             />
 
           </div>
