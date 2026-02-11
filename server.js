@@ -18,8 +18,12 @@ const hasSupabase = !!(supabaseUrl && supabaseKey);
 
 let supabase = null;
 if (hasSupabase) {
-    supabase = createClient(supabaseUrl, supabaseKey);
-    console.log("✅ Using Supabase Database");
+    try {
+        supabase = createClient(supabaseUrl, supabaseKey);
+        console.log("✅ Using Supabase Database");
+    } catch (e) {
+        console.error("❌ Failed to init Supabase client:", e.message);
+    }
 } else {
     console.log("⚠️ Supabase credentials missing. Using In-Memory Storage (Data will be lost on restart).");
 }
@@ -34,48 +38,35 @@ const memoryStore = {
 
 function getBasketHost(nmId) {
     const vol = Math.floor(nmId / 100000);
-    if (vol <= 143) return 'basket-01.wbbasket.ru';
-    if (vol <= 287) return 'basket-02.wbbasket.ru';
-    if (vol <= 431) return 'basket-03.wbbasket.ru';
-    if (vol <= 719) return 'basket-04.wbbasket.ru';
-    if (vol <= 1007) return 'basket-05.wbbasket.ru';
-    if (vol <= 1061) return 'basket-06.wbbasket.ru';
-    if (vol <= 1115) return 'basket-07.wbbasket.ru';
-    if (vol <= 1169) return 'basket-08.wbbasket.ru';
-    if (vol <= 1313) return 'basket-09.wbbasket.ru';
-    if (vol <= 1601) return 'basket-10.wbbasket.ru';
-    if (vol <= 1655) return 'basket-11.wbbasket.ru';
-    if (vol <= 1919) return 'basket-12.wbbasket.ru';
-    if (vol <= 2045) return 'basket-13.wbbasket.ru';
-    if (vol <= 2189) return 'basket-14.wbbasket.ru';
-    if (vol <= 2405) return 'basket-15.wbbasket.ru';
-    if (vol <= 2621) return 'basket-16.wbbasket.ru';
-    if (vol <= 2837) return 'basket-17.wbbasket.ru';
-    if (vol <= 3053) return 'basket-18.wbbasket.ru';
-    if (vol <= 3269) return 'basket-19.wbbasket.ru';
-    if (vol <= 3485) return 'basket-20.wbbasket.ru';
-    if (vol <= 3701) return 'basket-21.wbbasket.ru';
-    if (vol <= 3917) return 'basket-22.wbbasket.ru';
-    if (vol <= 4133) return 'basket-23.wbbasket.ru';
-    if (vol <= 4349) return 'basket-24.wbbasket.ru';
-    if (vol <= 4565) return 'basket-25.wbbasket.ru';
-    if (vol <= 4781) return 'basket-26.wbbasket.ru';
-    if (vol <= 4997) return 'basket-27.wbbasket.ru';
-    if (vol <= 5213) return 'basket-28.wbbasket.ru';
-    if (vol <= 5429) return 'basket-29.wbbasket.ru';
-    if (vol <= 5645) return 'basket-30.wbbasket.ru';
-    if (vol <= 5861) return 'basket-31.wbbasket.ru';
-    if (vol <= 6077) return 'basket-32.wbbasket.ru';
-    if (vol <= 6293) return 'basket-33.wbbasket.ru';
-    if (vol <= 6509) return 'basket-34.wbbasket.ru';
-    if (vol <= 6725) return 'basket-35.wbbasket.ru';
-    if (vol <= 6941) return 'basket-36.wbbasket.ru';
-    if (vol <= 7157) return 'basket-37.wbbasket.ru';
-    if (vol <= 7373) return 'basket-38.wbbasket.ru';
-    if (vol <= 7589) return 'basket-39.wbbasket.ru';
-    if (vol <= 7805) return 'basket-40.wbbasket.ru';
-    if (vol <= 8021) return 'basket-41.wbbasket.ru';
-    return 'basket-42.wbbasket.ru';
+    const hosts = [
+        { r: 143, h: 'basket-01.wbbasket.ru' },
+        { r: 287, h: 'basket-02.wbbasket.ru' },
+        { r: 431, h: 'basket-03.wbbasket.ru' },
+        { r: 719, h: 'basket-04.wbbasket.ru' },
+        { r: 1007, h: 'basket-05.wbbasket.ru' },
+        { r: 1061, h: 'basket-06.wbbasket.ru' },
+        { r: 1115, h: 'basket-07.wbbasket.ru' },
+        { r: 1169, h: 'basket-08.wbbasket.ru' },
+        { r: 1313, h: 'basket-09.wbbasket.ru' },
+        { r: 1601, h: 'basket-10.wbbasket.ru' },
+        { r: 1655, h: 'basket-11.wbbasket.ru' },
+        { r: 1919, h: 'basket-12.wbbasket.ru' },
+        { r: 2045, h: 'basket-13.wbbasket.ru' },
+        { r: 2189, h: 'basket-14.wbbasket.ru' },
+        { r: 2405, h: 'basket-15.wbbasket.ru' },
+        { r: 2621, h: 'basket-16.wbbasket.ru' },
+        { r: 2837, h: 'basket-17.wbbasket.ru' },
+        { r: 3053, h: 'basket-18.wbbasket.ru' },
+        { r: 3269, h: 'basket-19.wbbasket.ru' },
+        { r: 3485, h: 'basket-20.wbbasket.ru' },
+        { r: 3701, h: 'basket-21.wbbasket.ru' },
+        { r: 3917, h: 'basket-22.wbbasket.ru' },
+        { r: 4133, h: 'basket-23.wbbasket.ru' },
+        { r: 4349, h: 'basket-24.wbbasket.ru' },
+        { r: 4565, h: 'basket-25.wbbasket.ru' }
+    ];
+    const match = hosts.find(h => vol <= h.r);
+    return match ? match.h : 'basket-25.wbbasket.ru';
 }
 
 function generateWbImageUrl(nmId) {
@@ -87,7 +78,7 @@ function generateWbImageUrl(nmId) {
 
 // --- DATABASE OPERATIONS (Unified) ---
 async function getCachedContent(nmIds) {
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         const { data } = await supabase.from('content_cache').select('*').in('nm_id', nmIds);
         const map = {};
         if (data) {
@@ -113,7 +104,7 @@ async function getCachedContent(nmIds) {
 }
 
 async function upsertContent(items) {
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         const rows = items.map(i => ({
             nm_id: i.nmID,
             title: i.title,
@@ -135,7 +126,7 @@ async function upsertContent(items) {
 }
 
 async function getExistingOrders(ids) {
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         const { data } = await supabase.from('orders').select('id, status, scanned_kiz').in('id', ids);
         const map = {};
         if (data) data.forEach(o => map[o.id] = o);
@@ -152,7 +143,7 @@ async function getExistingOrders(ids) {
 }
 
 async function upsertOrder(orderData) {
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         await supabase.from('orders').upsert(orderData, { onConflict: 'id' });
     } else {
         // Only update if not exists or if we are changing status
@@ -162,9 +153,9 @@ async function upsertOrder(orderData) {
 }
 
 // --- WORKER (RETRY LOGIC) ---
-// Only runs if DB is available or simply skipped in memory for now (since memory is instant)
+// Only runs if DB is available
 setInterval(async () => {
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         try {
             const { data: pending, error } = await supabase.from('orders').select('*').eq('status', 'done').eq('synced_to_wb', false);
             if (error || !pending || pending.length === 0) return;
@@ -182,7 +173,7 @@ setInterval(async () => {
                         console.log(`[Worker] Synced ${order.id}`);
                     }
                 } catch (e) {}
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 500)); // Rate limit protection
             }
         } catch(e) {}
     }
@@ -200,28 +191,25 @@ app.post('/api/orders', async (req, res) => {
     const headers = { 'Authorization': token, 'Content-Type': 'application/json' };
 
     // --- NEW: CHECK SUPPLY STATUS ---
+    // Проверяем, не закрыта ли поставка, чтобы не показывать 0/256 для уже сданных
     if (supplyId) {
         try {
             const sid = supplyId.trim();
-            // Fetch Supply Info
             const sRes = await fetch(`https://marketplace-api.wildberries.ru/api/v3/supplies/${sid}`, { headers });
             
             if (sRes.ok) {
                 const sData = await sRes.json();
-                // Check if supply is closed or done
                 if (sData.closedAt || sData.done === true) {
                     return res.status(409).json({ 
-                        error: "Поставка уже закрыта (передана в доставку).",
+                        error: "Поставка уже закрыта (в доставке/принята).",
                         isClosed: true 
                     });
                 }
             } else if (sRes.status === 404) {
-                 // Warning: Supply ID might be wrong, but we continue to try finding orders anyway
-                 // just in case user entered a Name instead of ID, or API quirk.
-                 console.warn(`Supply ${sid} not found in supplies API, trying orders...`);
+                 console.warn(`Supply ${sid} check 404. Proceeding anyway.`);
             }
         } catch (e) {
-            console.warn("Supply status check failed (proceeding to orders):", e.message);
+            console.warn("Supply status check failed:", e.message);
         }
     }
     
@@ -254,10 +242,15 @@ app.post('/api/orders', async (req, res) => {
         filteredOrders = allOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(t));
     }
 
+    if (filteredOrders.length === 0) {
+        return res.json({ orders: [], map: {} });
+    }
+
     // C. Fetch Stickers
     const orderIds = filteredOrders.map(o => o.id);
     const stickersMap = {}; 
     
+    // Chunk requests for stickers
     for (let i = 0; i < orderIds.length; i += 100) {
         const chunk = orderIds.slice(i, i + 100);
         try {
@@ -285,6 +278,7 @@ app.post('/api/orders', async (req, res) => {
     nmIds.forEach(nm => { if (!contentMap[nm]) missingNmIds.push(nm); });
 
     if (missingNmIds.length > 0) {
+        // Chunk requests for content
         for (let i = 0; i < missingNmIds.length; i += 100) {
             const chunk = missingNmIds.slice(i, i + 100);
             try {
@@ -401,7 +395,7 @@ app.post('/api/bind', async (req, res) => {
 
   try {
     // DB Update
-    if (hasSupabase) {
+    if (hasSupabase && supabase) {
         const { error } = await supabase.from('orders').update({ 
             status: 'done', scanned_kiz: kiz, synced_to_wb: false, token: token 
         }).eq('id', orderId);
@@ -421,7 +415,7 @@ app.post('/api/bind', async (req, res) => {
         });
 
         if (wbRes.ok) {
-            if (hasSupabase) {
+            if (hasSupabase && supabase) {
                 await supabase.from('orders').update({ synced_to_wb: true }).eq('id', orderId);
             } else {
                 const o = memoryStore.orders.get(orderId);

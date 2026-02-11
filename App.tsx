@@ -5,7 +5,7 @@ import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
 import { ProductImage } from './components/ProductImage';
-import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2, Search, Shirt, Ruler, List as ListIcon } from 'lucide-react';
+import { Loader2, PackageCheck, QrCode, Zap, X, ScanBarcode, List as ListIcon, CheckCircle2 } from 'lucide-react';
 
 // Helper to highlight barcode end
 const BarcodeDisplay = ({ code }: { code: string }) => {
