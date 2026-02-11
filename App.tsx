@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { WBOrder, AppStep, SupplyStats } from './types';
 import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbService';
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2 } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -19,6 +19,9 @@ const App: React.FC = () => {
   const [orderMap, setOrderMap] = useState<Record<string, number>>({});
   const [activeOrder, setActiveOrder] = useState<WBOrder | null>(null);
   
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<'SCANNER' | 'LIST'>('SCANNER');
+
   // Feedback State
   const [overlayStatus, setOverlayStatus] = useState<'SUCCESS' | 'ERROR' | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState('');
@@ -81,6 +84,55 @@ const App: React.FC = () => {
     setToken('');
     setSupplyId('');
   };
+
+  // --- Aggregation Logic for List View ---
+  const groupedOrders = useMemo(() => {
+    if (orders.length === 0) return [];
+
+    const groups: Record<string, { 
+      key: string;
+      vendorCode: string;
+      size: string;
+      title: string;
+      brand: string;
+      photoUrl: string;
+      total: number;
+      done: number;
+      isComplete: boolean;
+    }> = {};
+
+    orders.forEach(order => {
+      // Create a unique key based on VendorCode + Size
+      const key = `${order.vendorCode}::${order.size || 'NOSIZE'}`;
+      
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          vendorCode: order.vendorCode,
+          size: order.size || '',
+          title: order.title,
+          brand: order.brand || '',
+          photoUrl: order.photoUrl,
+          total: 0,
+          done: 0,
+          isComplete: false
+        };
+      }
+
+      groups[key].total += 1;
+      if (order.status === 'done') {
+        groups[key].done += 1;
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => {
+      // Sort: Incomplete first
+      const aDone = a.done === a.total;
+      const bDone = b.done === b.total;
+      if (aDone === bDone) return a.vendorCode.localeCompare(b.vendorCode);
+      return aDone ? 1 : -1;
+    });
+  }, [orders]);
 
   // --- Handlers ---
   const handleLoadOrders = async (e: React.FormEvent) => {
@@ -147,6 +199,8 @@ const App: React.FC = () => {
 
       setActiveOrder(order);
       setStep(AppStep.SCAN_KIZ);
+      // Auto switch to scanner tab if in list
+      setActiveTab('SCANNER');
       audioService.playScanSuccess();
       return;
     }
@@ -257,7 +311,7 @@ const App: React.FC = () => {
 
       {/* --- WORKSPACE SCREEN --- */}
       {orders.length > 0 && (
-        <div className="w-full max-w-lg flex flex-col h-screen">
+        <div className="w-full max-w-lg flex flex-col h-screen relative">
           
           {/* Header & Stats */}
           <div className="bg-white px-6 py-4 shadow-sm z-10 sticky top-0">
@@ -280,89 +334,184 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Main Content Area */}
-          <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto pb-4">
+          {/* MAIN CONTENT - Scrollable */}
+          <div className="flex-1 overflow-y-auto pb-24 bg-gray-50">
             
-            {/* Step 1: Scan Order Placeholder (Only when no active order) */}
-            {!activeOrder && (
-               <div className="flex-1 flex flex-col items-center justify-center text-center animate-slide-up bg-white rounded-3xl border-2 border-dashed border-gray-300 p-8 min-h-[300px]">
-                  <div className="w-32 h-32 bg-gray-50 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                     <PackageCheck className="w-16 h-16 text-gray-300" />
+            {/* --- TAB 1: SCANNER --- */}
+            {activeTab === 'SCANNER' && (
+               <div className="p-4 flex flex-col gap-4 h-full">
+                  {/* Active Order or Placeholder */}
+                  {!activeOrder ? (
+                     <div className="flex-1 flex flex-col items-center justify-center text-center animate-slide-up bg-white rounded-3xl border-2 border-dashed border-gray-300 p-8 min-h-[300px]">
+                        <div className="w-32 h-32 bg-gray-50 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                           <PackageCheck className="w-16 h-16 text-gray-300" />
+                        </div>
+                        <h3 className="text-2xl font-bold text-gray-400">Жду сканирования<br/>стикера WB</h3>
+                        <p className="text-gray-400 text-sm mt-2">Наведите сканер на штрихкод товара</p>
+                     </div>
+                  ) : (
+                     <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-fuchsia-100 animate-slide-up flex-1 flex flex-col">
+                        {/* Status Bar */}
+                        <div className="bg-fuchsia-600 text-white text-center py-2 font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2">
+                           <Zap className="w-4 h-4 fill-white animate-bounce" />
+                           Товар найден
+                        </div>
+                        
+                        {/* Image Area */}
+                        <div className="relative h-64 bg-gray-100 flex items-center justify-center overflow-hidden group">
+                           {activeOrder.photoUrl ? (
+                              <img 
+                              src={activeOrder.photoUrl} 
+                              onError={(e) => {
+                                 e.currentTarget.style.display = 'none';
+                                 e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              }}
+                              className="w-full h-full object-contain mix-blend-multiply p-2 transition-transform duration-500 group-hover:scale-105" 
+                              alt="Товар" 
+                              />
+                           ) : null}
+                           <div className={`absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-400 ${activeOrder.photoUrl ? 'hidden' : ''}`}>
+                              <ImageOff className="w-12 h-12 mb-2 opacity-50" />
+                              <span className="text-xs">Фото недоступно</span>
+                           </div>
+                           
+                           {/* Tech Size Badge */}
+                           {activeOrder.size && (
+                              <div className="absolute top-4 right-4 bg-white/90 backdrop-blur text-gray-900 font-black text-xl px-4 py-2 rounded-lg shadow-lg border border-gray-100">
+                                 {activeOrder.size}
+                              </div>
+                           )}
+                        </div>
+
+                        {/* Details */}
+                        <div className="p-6 flex-1 flex flex-col justify-center">
+                           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex flex-wrap gap-1">
+                              <span>{activeOrder.brand || "Бренд"}</span>
+                              <span>•</span>
+                              <span className="line-clamp-1 text-gray-500">{activeOrder.title}</span>
+                           </div>
+
+                           <h2 className="text-4xl font-black leading-none mb-4 text-gray-900 break-words tracking-tight">
+                              {activeOrder.vendorCode || "Без Артикула"}
+                           </h2>
+                           
+                           <div className="flex items-center gap-4 mt-auto pt-4 border-t border-gray-100">
+                              <div>
+                                 <div className="text-[10px] uppercase text-gray-400 font-bold">Артикул WB</div>
+                                 <div className="font-mono text-lg font-medium">{activeOrder.article}</div>
+                              </div>
+                              <div className="ml-auto text-right">
+                                 <div className="text-[10px] uppercase text-gray-400 font-bold">Баркод</div>
+                                 <div className="font-mono text-sm text-gray-500">{activeOrder.stickerId}</div>
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  )}
+
+                  {/* Input Area (Visible only in Scanner Tab) */}
+                  <div className="bg-white/80 backdrop-blur rounded-2xl p-2 sticky bottom-0">
+                     <ScannerInput 
+                        onScan={handleScan} 
+                        isDisabled={isLoading} 
+                        mode={activeOrder ? 'active' : 'neutral'}
+                        placeholder={activeOrder 
+                        ? "СКАНИРУЙТЕ КИЗ (DataMatrix)" 
+                        : "Сканируйте стикер WB..."}
+                     />
                   </div>
-                  <h3 className="text-2xl font-bold text-gray-400">Жду сканирования<br/>стикера WB</h3>
-                  <p className="text-gray-400 text-sm mt-2">Наведите сканер на штрихкод товара</p>
                </div>
             )}
 
-            {/* Step 2: Active Order Card */}
-            {activeOrder && (
-              <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-fuchsia-100 animate-slide-up flex-1 flex flex-col">
-                 {/* Status Bar */}
-                 <div className="bg-fuchsia-600 text-white text-center py-2 font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2">
-                    <Zap className="w-4 h-4 fill-white animate-bounce" />
-                    Товар найден
-                 </div>
-                 
-                 {/* Image Area */}
-                 <div className="relative h-64 bg-gray-100 flex items-center justify-center overflow-hidden group">
-                   {activeOrder.photoUrl ? (
-                      <img 
-                      src={activeOrder.photoUrl} 
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                      }}
-                      className="w-full h-full object-contain mix-blend-multiply p-2 transition-transform duration-500 group-hover:scale-105" 
-                      alt="Товар" 
-                    />
-                   ) : null}
-                   <div className={`absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-400 ${activeOrder.photoUrl ? 'hidden' : ''}`}>
-                      <ImageOff className="w-12 h-12 mb-2 opacity-50" />
-                      <span className="text-xs">Фото недоступно</span>
-                   </div>
-                 </div>
+            {/* --- TAB 2: PICK LIST --- */}
+            {activeTab === 'LIST' && (
+               <div className="p-4 flex flex-col gap-3">
+                  <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1 px-1">Задание на сборку</h3>
+                  
+                  {groupedOrders.map((group) => {
+                     const isDone = group.done === group.total;
+                     return (
+                        <div 
+                           key={group.key}
+                           className={`bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4 transition-all ${isDone ? 'opacity-60 grayscale-[0.5]' : ''}`}
+                        >
+                           {/* Photo Thumb */}
+                           <div className="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 relative">
+                              {group.photoUrl ? (
+                                 <img src={group.photoUrl} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                 <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                    <Box className="w-6 h-6" />
+                                 </div>
+                              )}
+                              {isDone && (
+                                 <div className="absolute inset-0 bg-emerald-500/50 flex items-center justify-center">
+                                    <CheckCircle2 className="text-white w-8 h-8 drop-shadow-md" />
+                                 </div>
+                              )}
+                           </div>
 
-                 {/* Details */}
-                 <div className="p-6 flex-1 flex flex-col justify-center">
-                    {/* Brand and Title (Secondary) */}
-                    <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex flex-wrap gap-1">
-                       <span>{activeOrder.brand || "Бренд"}</span>
-                       <span>•</span>
-                       <span className="line-clamp-1 text-gray-500">{activeOrder.title}</span>
-                    </div>
+                           {/* Info */}
+                           <div className="flex-1 flex flex-col justify-center min-w-0">
+                              <div className="flex items-start justify-between">
+                                 <div>
+                                    <div className="text-xs text-gray-400 font-bold line-clamp-1">{group.brand}</div>
+                                    <div className="font-bold text-gray-900 leading-tight truncate text-lg">{group.vendorCode}</div>
+                                 </div>
+                              </div>
+                              
+                              <div className="mt-2 flex items-center gap-3">
+                                 {group.size && (
+                                    <div className="bg-gray-100 px-2 py-0.5 rounded-md text-sm font-bold text-gray-700 border border-gray-200">
+                                       {group.size}
+                                    </div>
+                                 )}
+                                 <div className="text-xs text-gray-400 truncate flex-1">
+                                    {group.title}
+                                 </div>
+                              </div>
+                           </div>
 
-                    {/* VENDOR CODE (Main) */}
-                    <h2 className="text-4xl font-black leading-none mb-4 text-gray-900 break-words tracking-tight">
-                       {activeOrder.vendorCode || "Без Артикула"}
-                    </h2>
-                    
-                    <div className="flex items-center gap-4 mt-auto pt-4 border-t border-gray-100">
-                       <div>
-                          <div className="text-[10px] uppercase text-gray-400 font-bold">Артикул WB</div>
-                          <div className="font-mono text-lg font-medium">{activeOrder.article}</div>
-                       </div>
-                       <div className="ml-auto text-right">
-                          <div className="text-[10px] uppercase text-gray-400 font-bold">Баркод</div>
-                          <div className="font-mono text-sm text-gray-500">{activeOrder.stickerId}</div>
-                       </div>
-                    </div>
-                 </div>
-              </div>
+                           {/* Counter */}
+                           <div className="flex flex-col items-center justify-center pl-2 border-l border-gray-100 w-16">
+                              <span className={`text-2xl font-black ${isDone ? 'text-emerald-500' : 'text-fuchsia-600'}`}>
+                                 {group.done}
+                              </span>
+                              <div className="h-px w-6 bg-gray-200 my-0.5"></div>
+                              <span className="text-gray-400 font-bold text-sm">
+                                 {group.total}
+                              </span>
+                           </div>
+                        </div>
+                     );
+                  })}
+               </div>
             )}
-
-            {/* Input Area (Sticky Bottom) */}
-            <div className="bg-white/80 backdrop-blur rounded-2xl p-2 sticky bottom-0">
-               <ScannerInput 
-                 onScan={handleScan} 
-                 isDisabled={isLoading} 
-                 mode={activeOrder ? 'active' : 'neutral'}
-                 placeholder={activeOrder 
-                   ? "СКАНИРУЙТЕ КИЗ (DataMatrix)" 
-                   : "Сканируйте стикер WB..."}
-               />
-            </div>
-
           </div>
+
+          {/* BOTTOM NAVIGATION */}
+          <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-50 flex pb-safe">
+             <button 
+               onClick={() => setActiveTab('SCANNER')}
+               className={`flex-1 py-3 flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'SCANNER' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}
+             >
+                <div className={`p-1 rounded-full ${activeTab === 'SCANNER' ? 'bg-fuchsia-50' : ''}`}>
+                  <ScanBarcode className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wide">Сканер</span>
+             </button>
+
+             <button 
+               onClick={() => setActiveTab('LIST')}
+               className={`flex-1 py-3 flex flex-col items-center justify-center gap-1 transition-colors ${activeTab === 'LIST' ? 'text-fuchsia-600' : 'text-gray-400 hover:text-gray-600'}`}
+             >
+                <div className={`p-1 rounded-full ${activeTab === 'LIST' ? 'bg-fuchsia-50' : ''}`}>
+                  <ClipboardList className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wide">Задание</span>
+             </button>
+          </div>
+
         </div>
       )}
     </div>

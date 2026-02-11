@@ -82,7 +82,7 @@ app.post('/api/orders', async (req, res) => {
       await new Promise(r => setTimeout(r, 50));
     }
 
-    // 4. Content API (Photos & Vendor Code fallback)
+    // 4. Content API (Photos, Vendor Code & Sizes)
     const nmIds = [...new Set(filteredOrders.map(o => o.nmId))];
     const productInfoMap = {};
     const nmChunks = [];
@@ -114,7 +114,8 @@ app.post('/api/orders', async (req, res) => {
                     productInfoMap[card.nmID] = {
                         title: card.title || card.subjectName || "", 
                         brand: card.brand || "",
-                        imageUrl: photo
+                        imageUrl: photo,
+                        sizes: card.sizes || [] // Store sizes array
                     };
                 });
             }
@@ -132,6 +133,15 @@ app.post('/api/orders', async (req, res) => {
       const finalTitle = info?.title || `Товар ${ro.nmId}`;
       const finalBrand = info?.brand || '';
       const finalPhoto = info?.imageUrl || getWbImageUrl(ro.nmId);
+
+      // Determine Size
+      let finalSize = '';
+      if (info && info.sizes && ro.chrtId) {
+          const sizeObj = info.sizes.find(s => s.chrtID === ro.chrtId);
+          if (sizeObj) {
+              finalSize = sizeObj.techSize || sizeObj.wbSize || '';
+          }
+      }
 
       let displaySticker = String(ro.id);
 
@@ -156,6 +166,7 @@ app.post('/api/orders', async (req, res) => {
         vendorCode: ro.article || '',
         title: finalTitle,
         brand: finalBrand,
+        size: finalSize,
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl: finalPhoto,
         isSgtinRequired: true,

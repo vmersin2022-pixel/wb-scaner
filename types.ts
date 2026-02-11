@@ -5,6 +5,7 @@ export interface WBOrder {
   vendorCode: string; // Vendor/Seller Article
   title: string;
   brand?: string;
+  size?: string; // Tech size (e.g. "XL", "42")
   price: number;
   photoUrl: string;
   isSgtinRequired: boolean;
