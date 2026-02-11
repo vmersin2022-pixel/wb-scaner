@@ -6,22 +6,32 @@ import { createClient } from '@supabase/supabase-js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- SUPABASE SETUP ---
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.warn("WARNING: SUPABASE_URL or SUPABASE_KEY is missing. Database features will fail.");
-}
-
-const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseKey || 'placeholder');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Helper: Get Host for Image Fallback
+// --- DATABASE CONFIGURATION ---
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const hasSupabase = !!(supabaseUrl && supabaseKey);
+
+let supabase = null;
+if (hasSupabase) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+    console.log("✅ Using Supabase Database");
+} else {
+    console.log("⚠️ Supabase credentials missing. Using In-Memory Storage (Data will be lost on restart).");
+}
+
+// --- IN-MEMORY FALLBACK STORE ---
+const memoryStore = {
+    orders: new Map(), // id -> { id, status, scanned_kiz, synced_to_wb }
+    content: new Map() // nmId -> { title, brand, imageUrl, sizes }
+};
+
+// --- HELPER FUNCTIONS ---
+
 function getBasketHost(nmId) {
     const vol = Math.floor(nmId / 100000);
     if (vol <= 143) return 'basket-01.wbbasket.ru';
@@ -75,43 +85,106 @@ function generateWbImageUrl(nmId) {
     return `https://${host}/vol${vol}/part${part}/${nmId}/images/c516x688/1.webp`;
 }
 
-// --- BACKGROUND WORKER (RETRY LOGIC) ---
-setInterval(async () => {
-    try {
-        const { data: pendingOrders, error } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('status', 'done')
-            .eq('synced_to_wb', false);
-        
-        if (error) throw error;
-        if (!pendingOrders || pendingOrders.length === 0) return;
-
-        console.log(`[Worker] Found ${pendingOrders.length} unsynced orders. Retrying...`);
-
-        for (const order of pendingOrders) {
-            if (!order.token || !order.scanned_kiz) continue;
-
-            try {
-                const wbRes = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders/${order.id}/meta/sgtin`, {
-                    method: 'PUT',
-                    headers: { 'Authorization': order.token, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sgtins: [order.scanned_kiz] })
-                });
-
-                if (wbRes.ok) {
-                    await supabase.from('orders').update({ synced_to_wb: true }).eq('id', order.id);
-                    console.log(`[Worker] Synced order ${order.id} successfully.`);
-                } else {
-                    console.warn(`[Worker] Failed to sync ${order.id}: ${await wbRes.text()}`);
-                }
-            } catch (err) {
-                console.error(`[Worker] Network error for ${order.id}:`, err.message);
-            }
-            await new Promise(r => setTimeout(r, 500));
+// --- DATABASE OPERATIONS (Unified) ---
+async function getCachedContent(nmIds) {
+    if (hasSupabase) {
+        const { data } = await supabase.from('content_cache').select('*').in('nm_id', nmIds);
+        const map = {};
+        if (data) {
+            data.forEach(item => {
+                map[item.nm_id] = {
+                    title: item.title,
+                    brand: item.brand,
+                    imageUrl: item.photo_url,
+                    sizes: item.sizes_json
+                };
+            });
         }
-    } catch (e) {
-        console.error("[Worker] Error:", e.message);
+        return map;
+    } else {
+        const map = {};
+        nmIds.forEach(id => {
+            if (memoryStore.content.has(id)) {
+                map[id] = memoryStore.content.get(id);
+            }
+        });
+        return map;
+    }
+}
+
+async function upsertContent(items) {
+    if (hasSupabase) {
+        const rows = items.map(i => ({
+            nm_id: i.nmID,
+            title: i.title,
+            brand: i.brand,
+            photo_url: i.imageUrl,
+            sizes_json: i.sizes_json
+        }));
+        await supabase.from('content_cache').upsert(rows, { onConflict: 'nm_id' });
+    } else {
+        items.forEach(i => {
+            memoryStore.content.set(i.nmID, {
+                title: i.title,
+                brand: i.brand,
+                imageUrl: i.imageUrl,
+                sizes: i.sizes_json
+            });
+        });
+    }
+}
+
+async function getExistingOrders(ids) {
+    if (hasSupabase) {
+        const { data } = await supabase.from('orders').select('id, status, scanned_kiz').in('id', ids);
+        const map = {};
+        if (data) data.forEach(o => map[o.id] = o);
+        return map;
+    } else {
+        const map = {};
+        ids.forEach(id => {
+            if (memoryStore.orders.has(id)) {
+                map[id] = memoryStore.orders.get(id);
+            }
+        });
+        return map;
+    }
+}
+
+async function upsertOrder(orderData) {
+    if (hasSupabase) {
+        await supabase.from('orders').upsert(orderData, { onConflict: 'id' });
+    } else {
+        // Only update if not exists or if we are changing status
+        const existing = memoryStore.orders.get(orderData.id) || {};
+        memoryStore.orders.set(orderData.id, { ...existing, ...orderData });
+    }
+}
+
+// --- WORKER (RETRY LOGIC) ---
+// Only runs if DB is available or simply skipped in memory for now (since memory is instant)
+setInterval(async () => {
+    if (hasSupabase) {
+        try {
+            const { data: pending, error } = await supabase.from('orders').select('*').eq('status', 'done').eq('synced_to_wb', false);
+            if (error || !pending || pending.length === 0) return;
+            
+            for (const order of pending) {
+                if (!order.token || !order.scanned_kiz) continue;
+                try {
+                    const wbRes = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders/${order.id}/meta/sgtin`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': order.token, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sgtins: [order.scanned_kiz] })
+                    });
+                    if (wbRes.ok) {
+                        await supabase.from('orders').update({ synced_to_wb: true }).eq('id', order.id);
+                        console.log(`[Worker] Synced ${order.id}`);
+                    }
+                } catch (e) {}
+                await new Promise(r => setTimeout(r, 500));
+            }
+        } catch(e) {}
     }
 }, 60000);
 
@@ -130,14 +203,23 @@ app.post('/api/orders', async (req, res) => {
     let allOrders = [];
     let next = 0;
     let fetchCount = 0;
-    do {
-        const r = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`, { headers });
-        if (!r.ok) break;
-        const d = await r.json();
-        allOrders = [...allOrders, ...(d.orders || [])];
-        next = d.next;
-        fetchCount++;
-    } while (next && next !== 0 && fetchCount < 10);
+    try {
+        do {
+            const r = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`, { headers });
+            if (!r.ok) break;
+            const d = await r.json();
+            allOrders = [...allOrders, ...(d.orders || [])];
+            next = d.next;
+            fetchCount++;
+        } while (next && next !== 0 && fetchCount < 10);
+    } catch (fetchErr) {
+        console.error("WB API Fetch Error:", fetchErr);
+        return res.status(502).json({ error: "Ошибка соединения с WB API" });
+    }
+
+    if (allOrders.length === 0) {
+        return res.json({ orders: [], map: {} });
+    }
 
     // B. Filter
     let filteredOrders = allOrders;
@@ -172,27 +254,10 @@ app.post('/api/orders', async (req, res) => {
     // D. Fetch Content
     const nmIds = [...new Set(filteredOrders.map(o => o.nmId))];
     const missingNmIds = [];
-    const contentMap = {};
+    const contentMap = await getCachedContent(nmIds);
 
-    // Check Cache in Supabase
-    const { data: cachedItems } = await supabase.from('content_cache').select('*').in('nm_id', nmIds);
-    if (cachedItems) {
-        cachedItems.forEach(item => {
-            contentMap[item.nm_id] = {
-                title: item.title,
-                brand: item.brand,
-                imageUrl: item.photo_url,
-                sizes: item.sizes_json // Already JSONB in Supabase, auto-parsed by JS client? Yes usually.
-            };
-        });
-    }
+    nmIds.forEach(nm => { if (!contentMap[nm]) missingNmIds.push(nm); });
 
-    // Determine missing
-    nmIds.forEach(nm => {
-        if (!contentMap[nm]) missingNmIds.push(nm);
-    });
-
-    // Fetch missing from WB
     if (missingNmIds.length > 0) {
         for (let i = 0; i < missingNmIds.length; i += 100) {
             const chunk = missingNmIds.slice(i, i + 100);
@@ -203,62 +268,40 @@ app.post('/api/orders', async (req, res) => {
                 if (r.ok) {
                     const d = await r.json();
                     const cards = d.cards || [];
-                    const cacheUpserts = [];
+                    const itemsToCache = [];
 
                     for (const card of cards) {
                         let photo = null;
                         if (card.photos?.length) photo = card.photos[0].big || card.photos[0].tm;
                         
                         const info = {
+                            nmID: card.nmID,
                             title: card.title || card.subjectName || "",
                             brand: card.brand || "",
                             imageUrl: photo,
-                            sizes_json: card.sizes || [] // Pass object, Supabase handles JSONB
+                            sizes_json: card.sizes || []
                         };
-
-                        cacheUpserts.push({
-                            nm_id: card.nmID,
-                            title: info.title,
-                            brand: info.brand,
-                            photo_url: info.imageUrl,
-                            sizes_json: info.sizes_json
-                        });
-
-                        contentMap[card.nmID] = { ...info, sizes: card.sizes || [] };
+                        itemsToCache.push(info);
+                        contentMap[card.nmID] = info;
                     }
-                    if (cacheUpserts.length > 0) {
-                        await supabase.from('content_cache').upsert(cacheUpserts, { onConflict: 'nm_id' });
-                    }
+                    if (itemsToCache.length > 0) await upsertContent(itemsToCache);
                 }
             } catch (e) { }
         }
     }
 
-    // F. MERGE & UPSERT to Supabase
+    // F. Final Assembly
     const finalOrders = [];
     const barcodeMap = {};
-    const dbUpserts = [];
-
-    // Get existing statuses to preserve 'done'
-    const { data: existingOrders } = await supabase
-        .from('orders')
-        .select('id, status, scanned_kiz')
-        .in('id', filteredOrders.map(o => o.id));
-    
-    const existingMap = {};
-    if (existingOrders) {
-        existingOrders.forEach(o => existingMap[o.id] = o);
-    }
+    const existingOrdersMap = await getExistingOrders(filteredOrders.map(o => o.id));
 
     for (const order of filteredOrders) {
         const info = contentMap[order.nmId] || {};
         const sticker = stickersMap[order.id] || String(order.id);
         
         let size = '';
-        if (info.sizes) {
-            // Note: info.sizes might be array (if from fetch) or object (if from JSONB check depends on driver). 
-            // supabase-js returns JSONB as object/array automatically.
-            const sizeArr = Array.isArray(info.sizes) ? info.sizes : [];
+        if (info.sizes_json) {
+            const sizeArr = Array.isArray(info.sizes_json) ? info.sizes_json : [];
             const sObj = sizeArr.find(s => 
                 String(s.chrtID) === String(order.chrtId) || 
                 (s.skus && order.skus && s.skus.some(sku => order.skus.includes(sku)))
@@ -273,13 +316,14 @@ app.post('/api/orders', async (req, res) => {
         let status = 'pending';
         let kiz = null;
 
-        const existing = existingMap[order.id];
+        const existing = existingOrdersMap[order.id];
         if (existing && existing.status === 'done') {
             status = 'done';
             kiz = existing.scanned_kiz;
         }
 
-        dbUpserts.push({
+        // Save order structure to DB/Memory for later
+        await upsertOrder({
             id: order.id,
             supply_id: order.supplyId,
             nm_id: order.nmId,
@@ -290,7 +334,6 @@ app.post('/api/orders', async (req, res) => {
             photo_url: photo,
             size: size,
             chrt_id: order.chrtId,
-            skus: order.skus || [],
             price: order.convertedPrice / 100,
             status: status,
             scanned_kiz: kiz,
@@ -316,16 +359,10 @@ app.post('/api/orders', async (req, res) => {
         barcodeMap[String(order.id)] = order.id;
     }
 
-    // Bulk Upsert
-    if (dbUpserts.length > 0) {
-        const { error } = await supabase.from('orders').upsert(dbUpserts, { onConflict: 'id' });
-        if (error) throw error;
-    }
-
     res.json({ orders: finalOrders, map: barcodeMap });
 
   } catch (e) {
-    console.error(e);
+    console.error("Critical Server Error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -337,40 +374,35 @@ app.post('/api/bind', async (req, res) => {
   if (!token || !orderId || !kiz) return res.status(400).json({ error: 'Missing data' });
 
   try {
-    // Check duplicates
-    const { data: dupe } = await supabase
-        .from('orders')
-        .select('id, sticker_id')
-        .eq('scanned_kiz', kiz)
-        .neq('id', orderId) // Ensure it's not the same order
-        .single();
-
-    if (dupe) {
-        return res.status(409).json({ error: `КИЗ уже привязан к заказу ${dupe.sticker_id}!` });
+    // DB Update
+    if (hasSupabase) {
+        const { error } = await supabase.from('orders').update({ 
+            status: 'done', scanned_kiz: kiz, synced_to_wb: false, token: token 
+        }).eq('id', orderId);
+        if (error) throw error;
+    } else {
+        const existing = memoryStore.orders.get(orderId) || {};
+        memoryStore.orders.set(orderId, { ...existing, status: 'done', scanned_kiz: kiz, synced_to_wb: false, token: token });
     }
-
-    // Update DB first
-    const { error: updateErr } = await supabase
-        .from('orders')
-        .update({ status: 'done', scanned_kiz: kiz, synced_to_wb: false, token: token })
-        .eq('id', orderId);
-    
-    if (updateErr) throw updateErr;
 
     // Try Sync
-    const url = `https://marketplace-api.wildberries.ru/api/v3/orders/${orderId}/meta/sgtin`;
-    const wbRes = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Authorization': token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sgtins: [kiz] })
-    });
+    try {
+        const url = `https://marketplace-api.wildberries.ru/api/v3/orders/${orderId}/meta/sgtin`;
+        const wbRes = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sgtins: [kiz] })
+        });
 
-    if (!wbRes.ok) {
-        console.warn("WB Bind Error (Immediate):", await wbRes.text());
-        // Do not fail request, worker will retry
-    } else {
-        await supabase.from('orders').update({ synced_to_wb: true }).eq('id', orderId);
-    }
+        if (wbRes.ok) {
+            if (hasSupabase) {
+                await supabase.from('orders').update({ synced_to_wb: true }).eq('id', orderId);
+            } else {
+                const o = memoryStore.orders.get(orderId);
+                if (o) o.synced_to_wb = true;
+            }
+        }
+    } catch (e) { console.error("WB Sync Error:", e); }
 
     res.json({ success: true });
 
