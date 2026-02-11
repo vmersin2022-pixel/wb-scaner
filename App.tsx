@@ -70,13 +70,10 @@ const App: React.FC = () => {
       audioService.playError();
     }
 
+    // Auto-clear overlay
     setTimeout(() => {
       setOverlayStatus(null);
       setFeedbackMsg('');
-      if (type === 'SUCCESS' && step === AppStep.SCAN_KIZ) {
-        setStep(AppStep.SCAN_ORDER);
-        setActiveOrder(null);
-      }
     }, duration);
   };
 
@@ -168,7 +165,8 @@ const App: React.FC = () => {
   };
 
   const handleScan = async (rawCode: string) => {
-    if (overlayStatus !== null || isLoading) return; 
+    // NOTE: Removed `overlayStatus !== null` check to allow fast continuous scanning
+    if (isLoading) return; 
     
     const code = cleanBarcode(rawCode);
     console.log("Scanned:", code);
@@ -210,14 +208,28 @@ const App: React.FC = () => {
 
     // --- STEP 2: SCAN KIZ ---
     if (step === AppStep.SCAN_KIZ && activeOrder) {
+      
+      // Auto-Switch: If user scans a WB Sticker instead of KIZ, check if they are switching orders
       if (orderMap[code]) {
-         // Пользователь случайно пикнул соседний стикер WB
-         if (orderMap[code] === activeOrder.id) {
-             showFeedback('ERROR', 'Нужен КИЗ (DataMatrix)!');
+         const newOrderId = orderMap[code];
+         if (newOrderId !== activeOrder.id) {
+             // Switching to different order
+             const newOrder = orders.find(o => o.id === newOrderId);
+             if (newOrder && newOrder.status !== 'done') {
+                 setActiveOrder(newOrder);
+                 audioService.playScanSuccess();
+                 // Stay in SCAN_KIZ but for new order
+                 return; 
+             } else if (newOrder && newOrder.status === 'done') {
+                 showFeedback('ERROR', 'УЖЕ СОБРАН!');
+                 setStep(AppStep.SCAN_ORDER);
+                 setActiveOrder(null);
+                 return;
+             }
          } else {
-             showFeedback('ERROR', 'Это другой заказ!');
+             showFeedback('ERROR', 'Нужен КИЗ (DataMatrix)!');
+             return;
          }
-         return;
       }
 
       if (code.length < 5) {
@@ -232,14 +244,17 @@ const App: React.FC = () => {
       if (success) {
         // Optimistic update
         setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, status: 'done', sgtin: code } : o));
+        
+        // IMMEDIATE STATE RESET for continuous workflow
+        setStep(AppStep.SCAN_ORDER);
+        setActiveOrder(null);
+
         showFeedback('SUCCESS', 'ПРИВЯЗАНО!');
       } else {
-        setIsLoading(false); // Only unset loading here if failed. Success handled in showFeedback
-        // API usually returns 409 for duplicate. Handle generic error here.
-        // If it was duplicate, linkKizToOrder logs it, we could pass message up.
-        // For now:
+        // Keep activeOrder so they can try again or check error
         showFeedback('ERROR', 'ОШИБКА ИЛИ ДУБЛЬ');
       }
+      setIsLoading(false);
     }
   };
 

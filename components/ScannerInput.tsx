@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ScanBarcode, Camera, X, AlertCircle, Keyboard } from 'lucide-react';
+import { ScanBarcode, Camera, X, Keyboard } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 
 interface ScannerInputProps {
@@ -15,54 +15,53 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   placeholder,
   mode = 'neutral'
 }) => {
-  const [buffer, setBuffer] = useState('');
+  const [value, setValue] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
-  // TSD Mode is default (Global Listener). Camera is optional.
-  const bufferRef = useRef('');
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // --- GLOBAL KEYBOARD LISTENER (TSD / BARCODE SCANNER) ---
+  // --- KIOSK MODE: AUTO FOCUS INPUT ---
+  // The input is always focused. When scanner types, it goes into input.
+  // When scanner sends Enter, we submit.
+  
+  const focusInput = () => {
+      if (!showCamera && !isDisabled && inputRef.current) {
+          inputRef.current.focus();
+      }
+  };
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isDisabled || showCamera) return;
-
-      // Ignore modifiers
-      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-
-      // Scanner Terminator (Enter)
-      if (e.key === 'Enter') {
-         if (bufferRef.current.length > 0) {
-            const code = bufferRef.current;
-            bufferRef.current = ''; // Clear immediately
-            setBuffer('');
-            onScan(code);
-         }
-         return;
-      }
-
-      // Buffer printable keys
-      if (e.key.length === 1) {
-         bufferRef.current += e.key;
-         setBuffer(bufferRef.current); // Update UI
-
-         // Safety: Clear buffer if typing stops for 200ms (manual typing vs scanner)
-         if (timeoutRef.current) clearTimeout(timeoutRef.current);
-         timeoutRef.current = setTimeout(() => {
-             // If manual typing, we keep it. If scanner, it usually finishes fast.
-             // This logic keeps the buffer valid for manual correction.
-         }, 200);
-      }
+    focusInput();
+    // Re-focus on window focus or clicks anywhere
+    const handleRefocus = () => {
+         // Small delay to allow copy-paste or other UI interactions
+         setTimeout(focusInput, 10);
     };
-
-    window.addEventListener('keydown', handleKeyDown);
+    
+    window.addEventListener('click', handleRefocus);
+    window.addEventListener('focus', handleRefocus);
+    
     return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        window.removeEventListener('click', handleRefocus);
+        window.removeEventListener('focus', handleRefocus);
     };
-  }, [isDisabled, showCamera, onScan]);
+  }, [showCamera, isDisabled]);
+
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+         if (value.trim().length > 0) {
+            onScan(value.trim());
+            setValue('');
+         }
+      }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setValue(e.target.value);
+  };
 
   // --- CAMERA LOGIC ---
   const handleCloseCamera = async () => {
@@ -70,6 +69,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
           try { await scannerRef.current.stop(); scannerRef.current.clear(); } catch(e){}
       }
       setShowCamera(false);
+      // Return focus to input
+      setTimeout(focusInput, 100);
   };
 
   useEffect(() => {
@@ -77,7 +78,6 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     setCameraError(null);
     const id = "reader";
     
-    // Tiny delay to ensure DOM exists
     setTimeout(() => {
         const scanner = new Html5Qrcode(id);
         scannerRef.current = scanner;
@@ -100,9 +100,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     };
   }, [showCamera]);
 
-  const borderColor = mode === 'active' ? 'border-fuchsia-500' : 'border-gray-300';
-  const iconColor = mode === 'active' ? 'text-fuchsia-600' : 'text-gray-400';
-
+  const borderColor = mode === 'active' ? 'border-fuchsia-500 ring-2 ring-fuchsia-100' : 'border-gray-300';
+  
   return (
     <div className="w-full mt-4 relative">
       
@@ -115,28 +114,38 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
          </div>
       )}
 
-      {/* Visual Feedback for Buffer (TSD Simulation) */}
-      <div className={`relative flex items-center bg-white rounded-xl border-2 shadow-sm transition-colors ${borderColor} h-14`}>
+      {/* Real Input (Styled to look like display) */}
+      <div className={`relative flex items-center bg-white rounded-xl border-2 shadow-sm transition-all ${borderColor} h-14 overflow-hidden`}>
         <div className="pl-4 pr-3 text-gray-400">
            {mode === 'active' ? <ScanBarcode className="w-6 h-6 animate-pulse text-fuchsia-600" /> : <Keyboard className="w-6 h-6" />}
         </div>
         
-        <div className="flex-1 text-lg font-mono font-medium tracking-wider truncate text-gray-700">
-           {buffer || <span className="text-gray-400 opacity-60 font-sans">{placeholder}</span>}
-        </div>
+        <input 
+            ref={inputRef}
+            type="text" 
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            disabled={isDisabled}
+            className="flex-1 h-full outline-none text-lg font-mono font-medium tracking-wider text-gray-900 placeholder:font-sans placeholder:text-gray-400 placeholder:opacity-60 bg-transparent"
+            placeholder={placeholder}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
+        />
 
         {/* Camera Toggle */}
         <button 
            onClick={() => setShowCamera(true)}
            disabled={isDisabled}
-           className="h-full px-4 text-gray-400 hover:text-gray-600 border-l border-gray-100 active:bg-gray-50 rounded-r-xl"
+           className="h-full px-4 text-gray-400 hover:text-gray-600 border-l border-gray-100 active:bg-gray-50 bg-gray-50/50"
         >
            <Camera className="w-6 h-6" />
         </button>
       </div>
 
       <div className="text-[10px] text-gray-400 text-center mt-2 font-medium uppercase tracking-wider">
-         {isDisabled ? "Загрузка..." : "Сканер активен • Нажимайте курок"}
+         {isDisabled ? "Загрузка..." : "Курсор установлен • Готов к сканированию"}
       </div>
     </div>
   );
