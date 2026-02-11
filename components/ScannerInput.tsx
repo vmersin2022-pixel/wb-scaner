@@ -23,14 +23,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   // --- KIOSK MODE: AUTO FOCUS INPUT ---
-  // The input is always focused. When scanner types, it goes into input.
-  // When scanner sends Enter, we submit.
-  
   const focusInput = () => {
-      // We only focus if camera is NOT showing. 
-      // We ignore 'isDisabled' for focus if we want to allow buffering, 
-      // but if the parent really wants to disable interaction, we respect it.
-      // However, for the "Queue" feature, we'll keep isDisabled false in App.tsx.
       if (!showCamera && !isDisabled && inputRef.current) {
           inputRef.current.focus();
       }
@@ -38,13 +31,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
 
   useEffect(() => {
     focusInput();
-    
-    // Aggressive refocus for Kiosk Mode
-    const handleRefocus = () => {
-         setTimeout(focusInput, 50);
-    };
-    
-    const interval = setInterval(focusInput, 2000); // Periodic check
+    const handleRefocus = () => { setTimeout(focusInput, 50); };
+    const interval = setInterval(focusInput, 2000); 
     
     window.addEventListener('click', handleRefocus);
     window.addEventListener('focus', handleRefocus);
@@ -56,6 +44,21 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     };
   }, [showCamera, isDisabled]);
 
+  // --- AUTO-SUBMIT LOGIC (DEBOUNCE) ---
+  useEffect(() => {
+    // Если поле пустое, ничего не делаем
+    if (!value) return;
+
+    // Таймер: если ввода нет 200мс, считаем что сканер закончил
+    const timeoutId = setTimeout(() => {
+        if (value.trim().length >= 3) { // Минимальная длина для защиты от случайных нажатий
+            onScan(value.trim());
+            setValue('');
+        }
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [value, onScan]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
@@ -120,7 +123,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
          </div>
       )}
 
-      {/* Real Input (Styled to look like display) */}
+      {/* Input Field */}
       <div className={`relative flex items-center bg-white rounded-xl border-2 shadow-sm transition-all ${borderColor} h-14 overflow-hidden`}>
         <div className="pl-4 pr-3 text-gray-400">
            {mode === 'active' ? <ScanBarcode className="w-6 h-6 animate-pulse text-fuchsia-600" /> : <Keyboard className="w-6 h-6" />}
@@ -152,7 +155,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
       </div>
 
       <div className="text-[10px] text-gray-400 text-center mt-2 font-medium uppercase tracking-wider">
-         {isDisabled ? "Загрузка..." : "Курсор установлен • Готов к сканированию"}
+         {isDisabled ? "Загрузка..." : "Курсор установлен • Авто-ввод активен"}
       </div>
     </div>
   );

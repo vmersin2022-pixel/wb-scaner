@@ -190,8 +190,7 @@ app.post('/api/orders', async (req, res) => {
   try {
     const headers = { 'Authorization': token, 'Content-Type': 'application/json' };
 
-    // --- NEW: CHECK SUPPLY STATUS ---
-    // Проверяем, не закрыта ли поставка, чтобы не показывать 0/256 для уже сданных
+    // --- CHECK SUPPLY STATUS ---
     if (supplyId) {
         try {
             const sid = supplyId.trim();
@@ -232,10 +231,6 @@ app.post('/api/orders', async (req, res) => {
     }
 
     // B. Filter
-    // 1. By Supply ID
-    // 2. EXCLUDE Canceled (isCancel === true)
-    // 3. EXCLUDE New/Unconfirmed (userStatus === 0) - because user wants "Assembly" items only
-    // 4. EXCLUDE Sold/Delivering (userStatus > 1) just in case
     let filteredOrders = [];
     if (supplyId && supplyId.trim()) {
         const t = supplyId.trim().toLowerCase();
@@ -245,7 +240,6 @@ app.post('/api/orders', async (req, res) => {
 
             if (o.isCancel === true) return false; // Exclude client cancellations
             
-            // userStatus 0 = New, 1 = On Assembly
             if (typeof o.userStatus !== 'undefined') {
                  if (o.userStatus === 0) return false; 
                  if (o.userStatus >= 2) return false; 
@@ -253,7 +247,6 @@ app.post('/api/orders', async (req, res) => {
             return true;
         });
     } else {
-        // Fallback for demo/no supply (though supply is required by UI)
         filteredOrders = allOrders; 
     }
 
@@ -270,7 +263,6 @@ app.post('/api/orders', async (req, res) => {
         stickerChunks.push(orderIds.slice(i, i + 100));
     }
 
-    // Run sticker requests in parallel
     await Promise.all(stickerChunks.map(async (chunk) => {
         try {
             const r = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders/stickers?type=svg&width=58&height=40`, {
@@ -305,7 +297,6 @@ app.post('/api/orders', async (req, res) => {
             contentChunks.push(missingNmIds.slice(i, i + 100));
         }
 
-        // Run content requests in parallel
         await Promise.all(contentChunks.map(async (chunk) => {
             try {
                 const r = await fetch('https://content-api.wildberries.ru/content/v2/get/cards/list', {
@@ -328,7 +319,6 @@ app.post('/api/orders', async (req, res) => {
                             sizes_json: card.sizes || []
                         };
                         itemsToCache.push(info);
-                        // Update local map immediately so we don't wait for DB write
                         contentMap[card.nmID] = info;
                     }
                     if (itemsToCache.length > 0) await upsertContent(itemsToCache);
@@ -348,6 +338,9 @@ app.post('/api/orders', async (req, res) => {
         const info = contentMap[order.nmId] || {};
         const sticker = stickersMap[order.id] || String(order.id);
         
+        // --- CLEAN STICKER (REMOVE ASTERISKS) ---
+        const cleanSticker = sticker.replace(/^\*+|\*+$/g, '');
+
         let size = '';
         if (info.sizes_json) {
             const sizeArr = Array.isArray(info.sizes_json) ? info.sizes_json : [];
@@ -371,13 +364,13 @@ app.post('/api/orders', async (req, res) => {
             kiz = existing.scanned_kiz;
         }
 
-        // Save order structure to DB/Memory for later
-        // We do this asynchronously without awaiting to speed up response
+        // Save using clean sticker usually? Actually better to save raw or clean. 
+        // We'll save clean for better reading in DB.
         upsertOrder({
             id: order.id,
             supply_id: order.supplyId,
             nm_id: order.nmId,
-            sticker_id: sticker,
+            sticker_id: cleanSticker,
             vendor_code: order.article,
             title: title,
             brand: brand,
@@ -392,7 +385,7 @@ app.post('/api/orders', async (req, res) => {
 
         finalOrders.push({
             id: order.id,
-            stickerId: sticker,
+            stickerId: cleanSticker, // Send clean version to UI
             article: String(order.nmId),
             vendorCode: order.article || '',
             title, brand, size,
@@ -403,7 +396,6 @@ app.post('/api/orders', async (req, res) => {
             isSgtinRequired: true
         });
 
-        const cleanSticker = sticker.replace(/^\*+|\*+$/g, '');
         barcodeMap[sticker] = order.id;
         barcodeMap[cleanSticker] = order.id;
         barcodeMap[String(order.id)] = order.id;
