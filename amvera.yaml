@@ -14,6 +14,7 @@ build:
     - node_modules
 run:
   script: npm start
-  persistence: []
+  persistence:
+    - /data
   ports:
     - 3000
