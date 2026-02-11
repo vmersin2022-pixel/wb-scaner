@@ -16,17 +16,14 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Получаем список заказов через /api/v3/orders (история/инфо)
-    // Этот метод возвращает все заказы (включая "на сборке"), в отличие от /orders/new
-    // Используем пагинацию, чтобы просмотреть последние заказы (по умолчанию API отдает за 30 дней)
-    
+    // 1. Получаем список заказов через /api/v3/orders
+    // Проходимся по страницам (пагинация), чтобы найти заказы нашей поставки
     let allOrders = [];
     let next = 0;
     let fetchCount = 0;
-    const MAX_REQUESTS = 10; // Ограничение: проверяем последние ~10,000 заказов, чтобы не было таймаута
+    const MAX_REQUESTS = 10; // Глубина поиска ~10,000 последних заказов
 
     do {
-        // limit=1000 - максимум API
         const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`;
         const ordersRes = await fetch(ordersUrl, { headers });
 
@@ -42,17 +39,14 @@ export default async function handler(req, res) {
         next = data.next;
         fetchCount++;
 
-        // Прерываем, если курсор 0 или данные кончились
     } while (next && next !== 0 && fetchCount < MAX_REQUESTS);
 
-    // 2. Фильтрация по ID поставки (supplyId)
+    // 2. Фильтрация по ID поставки
     let filteredOrders = [];
     if (supplyId && supplyId.trim() !== '') {
-      const target = supplyId.trim();
-      // Строгое сравнение ID поставки
-      filteredOrders = allOrders.filter(o => o.supplyId === target);
+      const target = supplyId.trim().toLowerCase();
+      filteredOrders = allOrders.filter(o => o.supplyId && o.supplyId.toLowerCase() === target);
     } else {
-      // Если ID поставки не указан, возвращаем все найденные (резервный вариант)
       filteredOrders = allOrders;
     }
 
@@ -64,10 +58,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. Получение стикеров (баркодов) для найденных заказов
+    // 3. Получение стикеров
     const orderIds = filteredOrders.map((o) => o.id);
     const chunks = [];
-    // Лимит WB: 100 заказов за один запрос стикеров
     for (let i = 0; i < orderIds.length; i += 100) {
       chunks.push(orderIds.slice(i, i + 100));
     }
@@ -84,48 +77,64 @@ export default async function handler(req, res) {
 
       if (stickersRes.ok) {
         const stickersData = await stickersRes.json();
-        // ВАЖНО: используем поле .stickers согласно документации v3
+        // В разных версиях API поле может быть 'stickers' или 'data'
         if (stickersData.stickers) {
           allStickers = [...allStickers, ...stickersData.stickers];
+        } else if (stickersData.data) {
+          allStickers = [...allStickers, ...stickersData.data];
         }
       }
-      // Небольшая задержка, чтобы не превысить лимиты API
       await new Promise(r => setTimeout(r, 100)); 
     }
 
-    // 4. Сборка итогового ответа
+    // 4. Сборка карты баркодов
     const mergedOrders = [];
     const barcodeMap = {};
 
     filteredOrders.forEach((ro) => {
       const stickerObj = allStickers.find((s) => s.orderId === ro.id);
       
-      let stickerCode = '';
-      if (stickerObj && stickerObj.partA && stickerObj.partB) {
-        stickerCode = `${stickerObj.partA}${stickerObj.partB}`;
-      } else {
-        // Fallback, если стикер не найден (маловероятно для активных заказов)
-        stickerCode = String(ro.id);
+      // Базовый ключ - ID заказа
+      barcodeMap[String(ro.id)] = ro.id;
+
+      let displaySticker = String(ro.id);
+
+      if (stickerObj) {
+        // А. Используем поле 'barcode' (например "*C4Qe/fqT")
+        // Это самое важное поле для сканирования QR с этикетки
+        if (stickerObj.barcode) {
+            const raw = stickerObj.barcode.trim();
+            barcodeMap[raw] = ro.id;
+            // Также добавляем вариант без звездочек (cleanBarcode на фронте может их убирать)
+            barcodeMap[raw.replace(/^\*+|\*+$/g, '')] = ro.id;
+            displaySticker = raw;
+        }
+
+        // Б. Используем комбинацию partA + partB (старый формат или запасной)
+        if (stickerObj.partA && stickerObj.partB) {
+            const composite = `${stickerObj.partA}${stickerObj.partB}`;
+            barcodeMap[composite] = ro.id;
+            // Если нет barcode, показываем это
+            if (!stickerObj.barcode) displaySticker = composite;
+        }
       }
       
-      // Формирование ссылки на фото
       const vol = Math.floor(ro.nmId / 100000);
       const part = Math.floor(ro.nmId / 1000);
       const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
 
       const order = {
         id: ro.id,
-        stickerId: stickerCode,
+        stickerId: displaySticker,
         article: ro.nmId ? ro.nmId.toString() : 'N/A',
         title: `Товар ${ro.nmId}`, 
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl,
         isSgtinRequired: true,
-        status: 'pending'
+        status: 'pending' // Можно доработать проверку статуса, если нужно
       };
 
       mergedOrders.push(order);
-      barcodeMap[stickerCode] = ro.id;
     });
 
     return res.status(200).json({ orders: mergedOrders, map: barcodeMap });
