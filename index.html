@@ -2,57 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#cb11ab" />
     <title>WB FBS Scanner</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              wb: {
-                brand: '#cb11ab', // Wildberries primary
-                dark: '#1e1e1e',
-                light: '#f5f5f5',
-              },
-              state: {
-                idle: '#3b82f6', // Blue - Waiting for Order
-                kiz: '#9333ea',  // Purple - Waiting for KIZ
-                success: '#22c55e', // Green
-                error: '#ef4444',   // Red
-              }
-            },
-            animation: {
-              'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              'flash-green': 'flashGreen 0.5s ease-out forwards',
-              'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both',
-            },
-            keyframes: {
-              flashGreen: {
-                '0%': { backgroundColor: 'rgba(34, 197, 94, 0.8)' },
-                '100%': { backgroundColor: 'transparent' },
-              },
-              shake: {
-                '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' },
-                '20%, 80%': { transform: 'translate3d(2px, 0, 0)' },
-                '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' },
-                '40%, 60%': { transform: 'translate3d(4px, 0, 0)' }
-              }
-            }
-          },
-        },
-      }
-    </script>
-    <style>
-      /* Hide scrollbar for clean UI on scanners */
-      body {
-        overscroll-behavior-y: contain;
-      }
-      ::-webkit-scrollbar {
-        width: 0px;
-        background: transparent;
-      }
-    </style>
   <script type="importmap">
 {
   "imports": {
@@ -60,13 +12,13 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react/": "https://esm.sh/react@^19.2.4/",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
-    "vite": "https://esm.sh/vite@^7.3.1"
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4"
   }
 }
 </script>
 </head>
-  <body class="bg-gray-100 text-gray-900 h-screen overflow-hidden selection:bg-wb-brand selection:text-white">
+  <body class="bg-gray-50 text-slate-900 h-screen overflow-hidden selection:bg-fuchsia-500 selection:text-white antialiased">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

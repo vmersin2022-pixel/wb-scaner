@@ -1,4 +1,5 @@
 import React from 'react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 interface Props {
   status: 'SUCCESS' | 'ERROR' | null;
@@ -8,25 +9,22 @@ interface Props {
 export const ScanOverlay: React.FC<Props> = ({ status, message }) => {
   if (!status) return null;
 
-  const bgClass = status === 'SUCCESS' 
-    ? 'bg-green-500/90 animate-flash-green' 
-    : 'bg-red-600/90 animate-pulse';
-
-  const icon = status === 'SUCCESS' ? (
-    <svg className="w-24 h-24 text-white mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-    </svg>
-  ) : (
-    <svg className="w-24 h-24 text-white mb-4 animate-shake" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
+  const isSuccess = status === 'SUCCESS';
 
   return (
-    <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center text-center p-6 ${bgClass} transition-all duration-300`}>
-      {icon}
+    <div className={`fixed inset-0 z-[100] flex flex-col items-center justify-center p-6 transition-all duration-300 backdrop-blur-sm ${
+      isSuccess ? 'bg-green-500/80' : 'bg-red-600/80'
+    }`}>
+      <div className="bg-white p-6 rounded-full shadow-2xl mb-6 animate-bounce">
+        {isSuccess ? (
+          <CheckCircle2 className="w-20 h-20 text-green-600" />
+        ) : (
+          <XCircle className="w-20 h-20 text-red-600" />
+        )}
+      </div>
+      
       {message && (
-        <h2 className="text-3xl font-bold text-white uppercase tracking-wider drop-shadow-md">
+        <h2 className="text-4xl font-black text-white uppercase tracking-wider drop-shadow-lg text-center leading-tight">
           {message}
         </h2>
       )}
