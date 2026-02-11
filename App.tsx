@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -28,6 +28,12 @@ const App: React.FC = () => {
 
   // --- Effects ---
   useEffect(() => {
+    // Restore creds from storage
+    const savedToken = localStorage.getItem('wb_token');
+    const savedSupplyId = localStorage.getItem('wb_supply_id');
+    if (savedToken) setToken(savedToken);
+    if (savedSupplyId) setSupplyId(savedSupplyId);
+
     const requestWakeLock = async () => {
       try {
         if ('wakeLock' in navigator) {
@@ -69,11 +75,24 @@ const App: React.FC = () => {
     };
   };
 
+  const clearCredentials = () => {
+    localStorage.removeItem('wb_token');
+    localStorage.removeItem('wb_supply_id');
+    setToken('');
+    setSupplyId('');
+  };
+
   // --- Handlers ---
   const handleLoadOrders = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token && !isDemo) return setErrorMsg("Введите API Token");
     
+    // Save creds
+    if (!isDemo) {
+        localStorage.setItem('wb_token', token);
+        localStorage.setItem('wb_supply_id', supplyId);
+    }
+
     setIsLoading(true);
     setErrorMsg(null);
 
@@ -167,7 +186,17 @@ const App: React.FC = () => {
       {/* --- LOGIN SCREEN --- */}
       {orders.length === 0 && (
         <div className="flex-1 flex flex-col justify-center items-center w-full max-w-md p-6 animate-slide-up">
-           <div className="bg-white p-8 rounded-3xl shadow-xl w-full border border-gray-100">
+           <div className="bg-white p-8 rounded-3xl shadow-xl w-full border border-gray-100 relative">
+              {(token || supplyId) && (
+                <button 
+                  onClick={clearCredentials}
+                  className="absolute top-4 right-4 text-gray-300 hover:text-red-400 transition-colors"
+                  title="Очистить данные"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+
               <div className="flex flex-col items-center mb-8">
                  <div className="w-16 h-16 bg-fuchsia-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-fuchsia-200">
                     <QrCode className="text-white w-8 h-8" />

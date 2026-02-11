@@ -1,15 +1,14 @@
 meta:
-  name: vb-skaner
-  toolchain:
-    name: node
-    version: 20
-
+  environment: node
+  toolchain: npm
+  version: 1.0
 build:
-  # Устанавливаем все зависимости и собираем фронтенд через Vite
-  command: npm install && npm run build
-
+  requirements: package.json
+  script: |
+    npm install
+    npm run build
 run:
-  # Запускаем Express сервер, который раздает статику и обрабатывает API
-  command: npm run start
-  persistence:
-    /data: data
+  script: npm start
+  persistence: []
+  ports:
+    - 3000
