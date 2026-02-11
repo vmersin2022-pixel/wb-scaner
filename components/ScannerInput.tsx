@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ScanBarcode, Keyboard, Camera, X } from 'lucide-react';
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScanBarcode, Camera, X, AlertCircle } from 'lucide-react';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface ScannerInputProps {
   onScan: (code: string) => void;
@@ -19,34 +19,30 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const [buffer, setBuffer] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   
-  // Timer for auto-submission (debounce)
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- HARDWARE SCANNER LOGIC (Auto-Focus & Auto-Submit) ---
-  
-  // 1. Aggressive Focus
+  // --- HARDWARE SCANNER LOGIC ---
   useEffect(() => {
     const focusInput = () => {
       if (!isDisabled && !showCamera && inputRef.current) {
-        // Only verify focus if we aren't editing another input
         if (document.activeElement?.tagName !== 'INPUT' || document.activeElement === inputRef.current) {
            inputRef.current.focus({ preventScroll: true });
         }
       }
     };
 
-    focusInput();
-    const interval = setInterval(focusInput, 1500); // Check periodically
-    
+    const interval = setInterval(focusInput, 1500);
     const handleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-        // Don't steal focus if clicking buttons or other inputs
         if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT' && !showCamera) {
             focusInput();
         }
     }
 
+    focusInput();
     window.addEventListener('click', handleClick);
     return () => {
       clearInterval(interval);
@@ -54,32 +50,21 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     };
   }, [isDisabled, showCamera]);
 
-  // 2. Auto-submit logic
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setBuffer(val);
-
-    // Clear previous timer
     if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
-
-    // If empty, do nothing
     if (!val.trim()) return;
 
-    // Set new timer: if no new input for 200ms, submit automatically
-    // Hardware scanners type very fast (approx 20-50ms per char). Humans type slower.
     submitTimerRef.current = setTimeout(() => {
-        if (val.trim().length > 0) {
-            triggerScan(val.trim());
-        }
-    }, 250); // 250ms threshold
+        if (val.trim().length > 0) triggerScan(val.trim());
+    }, 250);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
-      if (buffer.trim().length > 0) {
-        triggerScan(buffer.trim());
-      }
+      if (buffer.trim().length > 0) triggerScan(buffer.trim());
     }
   };
 
@@ -88,48 +73,82 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     setBuffer('');
   };
 
-  // --- CAMERA LOGIC ---
-  
+  // --- CAMERA LOGIC (FIXED FOR iOS) ---
   useEffect(() => {
-    if (!showCamera) return;
+    if (!showCamera) {
+      // Cleanup
+      if (scannerRef.current) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current?.clear();
+        }).catch(err => console.warn("Stop failed", err));
+      }
+      return;
+    }
 
-    const scannerId = "html5qr-code-full-region";
-    
-    // Config for formats: Code 128 (WB), Data Matrix (KIZ), EAN
-    const config = { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-        formatsToSupport: [ 
+    const startScanner = async () => {
+      setCameraError(null);
+      
+      // Delay to ensure DOM element #reader is rendered and has size
+      await new Promise(r => setTimeout(r, 300));
+
+      const scannerId = "reader";
+      
+      if (!document.getElementById(scannerId)) {
+        setCameraError("Ошибка инициализации видео");
+        return;
+      }
+
+      try {
+        const formats = [ 
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.DATAMATRIX,
             Html5QrcodeSupportedFormats.EAN_13,
             Html5QrcodeSupportedFormats.QR_CODE
-        ]
+        ];
+
+        scannerRef.current = new Html5Qrcode(scannerId);
+
+        // Explicitly request back camera (environment)
+        // This is crucial for iOS
+        const config = { 
+            fps: 10, 
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0 
+        };
+
+        await scannerRef.current.start(
+            { facingMode: "environment" }, 
+            config,
+            (decodedText) => {
+                console.log("Cam Scan:", decodedText);
+                triggerScan(decodedText);
+                setShowCamera(false);
+            },
+            (errorMessage) => {
+                // Ignore parse errors, they happen every frame
+            }
+        );
+
+      } catch (err: any) {
+        console.error("Camera Start Error:", err);
+        setCameraError("Нет доступа к камере. Разрешите доступ в настройках браузера.");
+      }
     };
 
-    const scanner = new Html5QrcodeScanner(scannerId, config, false);
-
-    scanner.render(
-        (decodedText) => {
-            // Success callback
-            console.log("Camera Scan:", decodedText);
-            triggerScan(decodedText);
-            setShowCamera(false); // Close camera on success
-            scanner.clear().catch(console.error);
-        },
-        (errorMessage) => {
-            // Parse error, ignore usually
-        }
-    );
+    startScanner();
 
     return () => {
-        scanner.clear().catch(console.error);
+       if (scannerRef.current) {
+           try {
+               if (scannerRef.current.isScanning) {
+                   scannerRef.current.stop().catch(console.error);
+               }
+               scannerRef.current.clear();
+           } catch (e) { console.error(e); }
+       }
     };
   }, [showCamera]);
 
-
-  // --- VISUALS ---
 
   const borderColor = mode === 'active' ? 'border-fuchsia-500' : 'border-gray-300';
   const ringColor = mode === 'active' ? 'ring-fuchsia-200' : 'ring-gray-100';
@@ -138,21 +157,40 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   return (
     <div className="w-full mt-4 relative group">
       
-      {/* Camera Modal Overlay */}
+      {/* Camera Modal */}
       {showCamera && (
-         <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center p-4 animate-in fade-in">
+         <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
              <button 
                 onClick={() => setShowCamera(false)}
-                className="absolute top-4 right-4 bg-white/20 p-2 rounded-full text-white z-50 backdrop-blur-md"
+                className="absolute top-4 right-4 bg-white/20 p-2 rounded-full text-white z-50 backdrop-blur-md active:scale-95 transition-transform"
              >
                 <X className="w-8 h-8" />
              </button>
-             <div className="w-full max-w-sm bg-white rounded-2xl overflow-hidden shadow-2xl">
-                 <div id="html5qr-code-full-region" className="w-full"></div>
+             
+             <div className="w-full max-w-sm bg-black rounded-2xl overflow-hidden shadow-2xl relative ring-1 ring-white/20">
+                 {/* The Library attaches video here */}
+                 <div id="reader" className="w-full h-[350px] bg-gray-900"></div>
+
+                 {/* Error State */}
+                 {cameraError && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/90 backdrop-blur-sm">
+                       <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+                       <p className="text-white text-lg font-medium">{cameraError}</p>
+                       <button 
+                          onClick={() => setShowCamera(false)}
+                          className="mt-6 px-6 py-2 bg-white text-black font-bold rounded-lg"
+                       >
+                          Закрыть
+                       </button>
+                    </div>
+                 )}
              </div>
-             <p className="text-white mt-6 text-center text-lg font-medium opacity-80">
-                Наведите камеру на код
-             </p>
+             
+             {!cameraError && (
+                 <p className="text-white mt-6 text-center text-lg font-medium opacity-80 animate-pulse">
+                    Наведите камеру на код
+                 </p>
+             )}
          </div>
       )}
 
@@ -178,14 +216,12 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
         placeholder="" 
       />
       
-      {/* Placeholder Label */}
       <div className={`absolute left-12 top-0 h-full flex items-center pointer-events-none transition-all duration-300 ${buffer ? 'opacity-0' : 'opacity-100'}`}>
         <span className={`text-lg ${mode === 'active' ? 'text-fuchsia-600 font-medium' : 'text-gray-400'}`}>
             {placeholder || "Сканировать..."}
         </span>
       </div>
 
-      {/* Camera Toggle Button */}
       <div className="absolute inset-y-0 right-0 pr-2 flex items-center">
         <button 
            onClick={() => setShowCamera(true)}
