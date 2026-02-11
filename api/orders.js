@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     let allOrders = [];
     let next = 0;
     let fetchCount = 0;
-    const MAX_REQUESTS = 15; // Чуть увеличим глубину поиска
+    const MAX_REQUESTS = 15;
 
     do {
         const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`;
@@ -57,7 +57,7 @@ export default async function handler(req, res) {
     }
 
     // --- 3. Получение стикеров (FBS API) ---
-    // Это ключевой шаг: связываем orderId с баркодом стикера (*C4Qe...)
+    // Связываем orderId с баркодом стикера
     const orderIds = filteredOrders.map((o) => o.id);
     const chunks = [];
     for (let i = 0; i < orderIds.length; i += 100) chunks.push(orderIds.slice(i, i + 100));
@@ -79,33 +79,55 @@ export default async function handler(req, res) {
       await new Promise(r => setTimeout(r, 50));
     }
 
-    // --- 4. Обогащение данными (Public Card API) ---
-    // Получаем реальные фото и названия по nmId
+    // --- 4. Получение фото и названий (Официальный Content API) ---
+    // Используем тот же токен, так как у него есть права на Контент
     const nmIds = [...new Set(filteredOrders.map(o => o.nmId))];
     const productInfoMap = {};
 
     const nmChunks = [];
-    for (let i = 0; i < nmIds.length; i += 50) nmChunks.push(nmIds.slice(i, i + 50));
+    for (let i = 0; i < nmIds.length; i += 100) nmChunks.push(nmIds.slice(i, i + 100));
 
     for (const chunk of nmChunks) {
         try {
-            const nmString = chunk.join(';');
-            const cardUrl = `https://card.wb.ru/cards/v2/detail?appType=1&curr=rub&dest=-1257786&nm=${nmString}`;
-            const cardRes = await fetch(cardUrl);
-            if (cardRes.ok) {
-                const cardData = await cardRes.json();
-                const products = cardData.data?.products || [];
-                products.forEach(p => {
-                    productInfoMap[p.id] = {
-                        title: p.name,
-                        brand: p.brand,
-                        // Используем обновленную функцию генерации URL
-                        imageUrl: getWbImageUrl(p.id)
+            const contentUrl = 'https://content-api.wildberries.ru/content/v2/get/cards/list';
+            const payload = {
+                settings: {
+                    cursor: { limit: 100 },
+                    filter: {
+                        withPhoto: -1, // Запрашиваем фото
+                        nmID: chunk    // Фильтр по нашим артикулам
+                    }
+                }
+            };
+            
+            const contentRes = await fetch(contentUrl, {
+                method: 'POST',
+                headers, // Тот же токен
+                body: JSON.stringify(payload)
+            });
+
+            if (contentRes.ok) {
+                const contentData = await contentRes.json();
+                const cards = contentData.cards || [];
+                cards.forEach(card => {
+                    // Ищем самое большое фото или хотя бы какое-то
+                    let photo = null;
+                    if (card.photos && card.photos.length > 0) {
+                         photo = card.photos[0].big || card.photos[0].c516x688 || card.photos[0].tm;
+                    }
+                    
+                    productInfoMap[card.nmID] = {
+                        title: card.title || card.subjectName || "", 
+                        brand: card.brand || "",
+                        imageUrl: photo
                     };
                 });
+            } else {
+                console.warn(`Content API Error: ${contentRes.status}`, await contentRes.text());
+                // Если ошибка (например, нет прав), мы просто продолжим и сработает fallback внизу
             }
         } catch (e) {
-            console.error("Error fetching card info", e);
+            console.error("Error fetching content info", e);
         }
     }
 
@@ -115,8 +137,15 @@ export default async function handler(req, res) {
 
     filteredOrders.forEach((ro) => {
       const stickerObj = allStickers.find((s) => s.orderId === ro.id);
-      const info = productInfoMap[ro.nmId] || {};
       
+      // Данные из Content API
+      const info = productInfoMap[ro.nmId];
+      
+      // Fallback: Если Content API не вернул инфо, генерируем ссылку вручную и ставим заглушку заголовка
+      const finalTitle = info?.title || `Товар ${ro.nmId}`;
+      const finalBrand = info?.brand || '';
+      const finalPhoto = info?.imageUrl || getWbImageUrl(ro.nmId); // Используем генератор как запасной вариант
+
       let displaySticker = String(ro.id);
 
       // Маппинг баркодов стикера
@@ -125,7 +154,6 @@ export default async function handler(req, res) {
             const raw = stickerObj.barcode.trim();
             displaySticker = raw;
             barcodeMap[raw] = ro.id;
-            // Учитываем вариант, если сканер "съел" звездочки
             barcodeMap[raw.replace(/^\*+|\*+$/g, '')] = ro.id;
         } else if (stickerObj.partA && stickerObj.partB) {
             const composite = `${stickerObj.partA}${stickerObj.partB}`;
@@ -140,10 +168,10 @@ export default async function handler(req, res) {
         id: ro.id,
         stickerId: displaySticker,
         article: ro.nmId ? ro.nmId.toString() : 'N/A',
-        title: info.title || `Товар ${ro.nmId}`, 
-        brand: info.brand || '',
+        title: finalTitle,
+        brand: finalBrand,
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
-        photoUrl: info.imageUrl || getWbImageUrl(ro.nmId),
+        photoUrl: finalPhoto,
         isSgtinRequired: true,
         status: 'pending' 
       });
@@ -157,13 +185,13 @@ export default async function handler(req, res) {
   }
 }
 
-// Обновленная функция для генерации ссылок на изображения WB
-// Добавлены basket-23, 24, 25 для новых товаров (2025 год)
+// Запасной генератор ссылок (Fallback)
+// Используется, если Content API не вернул фото или токен не подошел для контента
 function getWbImageUrl(nmId) {
     const vol = Math.floor(nmId / 100000);
     const part = Math.floor(nmId / 1000);
     
-    // Актуальная карта серверов
+    // Карта серверов (включая новые 2025 года)
     const hosts = [
         { range: [0, 143], host: 'basket-01.wbbasket.ru' },
         { range: [144, 287], host: 'basket-02.wbbasket.ru' },
@@ -193,7 +221,7 @@ function getWbImageUrl(nmId) {
     ];
 
     const match = hosts.find(h => vol >= h.range[0] && vol <= h.range[1]);
-    const host = match ? match.host : 'basket-25.wbbasket.ru'; // Fallback
+    const host = match ? match.host : 'basket-25.wbbasket.ru';
 
     return `https://${host}/vol${vol}/part${part}/${nmId}/images/c516x688/1.jpg`;
 }
