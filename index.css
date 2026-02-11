@@ -12,15 +12,9 @@
 }
 
 body {
-  overscroll-behavior-y: contain;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background-color: #f3f4f6;
-}
-
-/* Hide scrollbar */
-::-webkit-scrollbar {
-  width: 0px;
-  background: transparent;
+  /* Removed overscroll-behavior and scrollbar hiding for desktop experience */
 }
 
 /* --- Animations --- */

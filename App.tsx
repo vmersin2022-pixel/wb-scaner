@@ -5,7 +5,7 @@ import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
 import { ProductImage } from './components/ProductImage';
-import { Loader2, PackageCheck, QrCode, Zap, X, ScanBarcode, List as ListIcon, CheckCircle2 } from 'lucide-react';
+import { Loader2, PackageCheck, QrCode, Zap, X, ScanBarcode, List as ListIcon, CheckCircle2, LayoutGrid, Box } from 'lucide-react';
 
 // Helper to highlight barcode end
 const BarcodeDisplay = ({ code }: { code: string }) => {
@@ -188,7 +188,6 @@ const App: React.FC = () => {
       const orderId = orderMap[code];
       
       if (!orderId) {
-        // Проверка: может это КИЗ?
         if (code.length > 20) {
             showFeedback('ERROR', 'Сначала стикер WB!');
         } else {
@@ -215,16 +214,13 @@ const App: React.FC = () => {
     // --- STEP 2: SCAN KIZ ---
     if (step === AppStep.SCAN_KIZ && activeOrder) {
       
-      // Auto-Switch: If user scans a WB Sticker instead of KIZ, check if they are switching orders
       if (orderMap[code]) {
          const newOrderId = orderMap[code];
          if (newOrderId !== activeOrder.id) {
-             // Switching to different order
              const newOrder = orders.find(o => o.id === newOrderId);
              if (newOrder && newOrder.status !== 'done') {
                  setActiveOrder(newOrder);
                  audioService.playScanSuccess();
-                 // Stay in SCAN_KIZ but for new order
                  return; 
              } else if (newOrder && newOrder.status === 'done') {
                  showFeedback('ERROR', 'УЖЕ СОБРАН!');
@@ -244,27 +240,20 @@ const App: React.FC = () => {
       }
 
       setIsLoading(true);
-      // Pass isDemo logic
       const success = await linkKizToOrder(token, activeOrder.id, code, isDemo);
       
       if (success) {
-        // Optimistic update
         setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, status: 'done', sgtin: code } : o));
-        
-        // IMMEDIATE STATE RESET for continuous workflow
         setStep(AppStep.SCAN_ORDER);
         setActiveOrder(null);
-
         showFeedback('SUCCESS', 'ПРИВЯЗАНО!');
       } else {
-        // Keep activeOrder so they can try again or check error
         showFeedback('ERROR', 'ОШИБКА ИЛИ ДУБЛЬ');
       }
       setIsLoading(false);
     }
   };
 
-  // Queue Processor
   useEffect(() => {
     if (!isLoading && scanQueue.length > 0) {
       const nextCode = scanQueue[0];
@@ -273,9 +262,7 @@ const App: React.FC = () => {
     }
   }, [isLoading, scanQueue]);
 
-  // Main Handler (adds to queue)
   const handleScanInput = (code: string) => {
-    // If idle, process immediately. If busy, queue it.
     if (!isLoading) {
       processScan(code);
     } else {
@@ -286,14 +273,15 @@ const App: React.FC = () => {
   const stats = getStats();
   const progressPercent = stats.total > 0 ? (stats.done / stats.total) * 100 : 0;
 
+  // --- RENDER ---
   return (
-    <div className="min-h-screen bg-gray-100 font-sans text-slate-900 flex flex-col items-center relative overflow-hidden">
+    <div className="min-h-screen bg-gray-50 text-slate-900 font-sans">
       <ScanOverlay status={overlayStatus} message={feedbackMsg} />
       
-      {/* --- LOGIN SCREEN --- */}
+      {/* --- LOGIN SCREEN (Centered, clean) --- */}
       {orders.length === 0 && (
-        <div className="flex-1 flex flex-col justify-center items-center w-full max-w-md p-6">
-           <div className="bg-white p-8 rounded-3xl shadow-xl w-full border border-gray-100 relative">
+        <div className="min-h-screen flex flex-col justify-center items-center p-6">
+           <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100 relative">
               {(token || supplyId) && (
                 <button 
                   onClick={clearCredentials}
@@ -303,22 +291,23 @@ const App: React.FC = () => {
                 </button>
               )}
               <div className="flex flex-col items-center mb-8">
-                 <div className="w-16 h-16 bg-fuchsia-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-fuchsia-200">
-                    <QrCode className="text-white w-8 h-8" />
+                 <div className="w-20 h-20 bg-fuchsia-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-fuchsia-200">
+                    <QrCode className="text-white w-10 h-10" />
                  </div>
-                 <h1 className="text-3xl font-bold text-gray-900">FBS Склад 2.0</h1>
+                 <h1 className="text-3xl font-bold text-gray-900">FBS Склад</h1>
+                 <p className="text-gray-400 mt-2">Версия для ПК</p>
               </div>
               <form onSubmit={handleLoadOrders} className="space-y-4">
                 <input
                     type="password"
-                    className="w-full mt-1 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 transition-all outline-none"
+                    className="w-full mt-1 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 transition-all outline-none text-lg"
                     value={token}
                     onChange={e => setToken(e.target.value)}
                     placeholder="API Token (WB)"
                   />
                   <input
                     type="text"
-                    className="w-full mt-1 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 transition-all outline-none"
+                    className="w-full mt-1 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 transition-all outline-none text-lg"
                     value={supplyId}
                     onChange={e => setSupplyId(e.target.value)}
                     placeholder="Поставка (WB-GI-...)"
@@ -327,159 +316,225 @@ const App: React.FC = () => {
                 <button
                     type="submit"
                     disabled={isLoading}
-                    className="w-full py-3.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] flex justify-center items-center"
+                    className="w-full py-4 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] flex justify-center items-center text-lg"
                   >
-                    {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Загрузить базу"}
+                    {isLoading ? <Loader2 className="animate-spin w-6 h-6" /> : "Загрузить базу"}
                   </button>
-                  <button type="button" onClick={() => setIsDemo(!isDemo)} className="w-full text-xs text-center text-gray-400 py-2">
-                    {isDemo ? 'ДЕМО' : 'Включить демо'}
+                  <button type="button" onClick={() => setIsDemo(!isDemo)} className="w-full text-xs text-center text-gray-400 py-2 hover:text-gray-600">
+                    {isDemo ? 'ДЕМО РЕЖИМ' : 'Включить демо'}
                   </button>
               </form>
            </div>
         </div>
       )}
 
-      {/* --- WORKSPACE --- */}
+      {/* --- DESKTOP WORKSPACE --- */}
       {orders.length > 0 && (
-        <div className="w-full max-w-lg flex flex-col h-screen relative">
+        <div className="w-full h-screen flex flex-col overflow-hidden">
           
-          {/* Header */}
-          <div className="bg-white px-6 py-4 shadow-sm z-10 sticky top-0">
-            <div className="flex justify-between items-end mb-2">
-              <div>
-                <h2 className="text-xl font-extrabold text-gray-900">Поставка</h2>
-                <div className="text-xs text-gray-400 font-mono">{supplyId}</div>
-              </div>
-              <div className="text-right">
-                <span className="text-3xl font-black text-fuchsia-600">{stats.done}</span>
-                <span className="text-gray-400 font-medium text-lg"> / {stats.total}</span>
-              </div>
-            </div>
-            <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
-               <div className="h-full bg-fuchsia-500 transition-all duration-500 ease-out" style={{ width: `${progressPercent}%` }} />
-            </div>
-          </div>
+          {/* Header Bar */}
+          <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shadow-sm z-20 shrink-0">
+             <div className="flex items-center gap-6">
+                <div>
+                   <h2 className="text-2xl font-black text-gray-900 tracking-tight">Поставка</h2>
+                   <div className="text-sm text-gray-400 font-mono">{supplyId}</div>
+                </div>
+                {/* Desktop Tabs */}
+                <div className="flex bg-gray-100 p-1 rounded-lg">
+                   <button 
+                      onClick={() => setActiveTab('SCANNER')}
+                      className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'SCANNER' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500 hover:text-gray-700'}`}
+                   >
+                      <ScanBarcode className="inline w-4 h-4 mr-2"/> Сканер
+                   </button>
+                   <button 
+                      onClick={() => setActiveTab('LIST')}
+                      className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'LIST' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500 hover:text-gray-700'}`}
+                   >
+                      <ListIcon className="inline w-4 h-4 mr-2"/> Список товаров
+                   </button>
+                </div>
+             </div>
 
-          <div className="flex-1 overflow-y-auto pb-24 bg-gray-50">
+             <div className="flex items-center gap-8">
+                <div className="w-64">
+                   <div className="flex justify-between text-sm font-bold mb-1">
+                      <span className="text-gray-500">Прогресс</span>
+                      <span className="text-fuchsia-600">{stats.done} / {stats.total}</span>
+                   </div>
+                   <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-fuchsia-500 transition-all duration-500 ease-out" style={{ width: `${progressPercent}%` }} />
+                   </div>
+                </div>
+                <button onClick={clearCredentials} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500">
+                   <X className="w-6 h-6" />
+                </button>
+             </div>
+          </header>
+
+          {/* Main Content Area */}
+          <main className="flex-1 overflow-hidden relative bg-gray-50 p-6">
+            
             {activeTab === 'SCANNER' && (
-               <div className="p-4 flex flex-col gap-4 h-full">
+               <div className="max-w-[1920px] mx-auto h-full flex flex-col gap-6">
+                  
                   {!activeOrder ? (
-                     <div className="flex-1 flex flex-col items-center justify-center text-center bg-white rounded-3xl border-2 border-dashed border-gray-300 p-8 min-h-[300px]">
-                        <PackageCheck className="w-16 h-16 text-gray-300 mb-6" />
-                        <h3 className="text-2xl font-bold text-gray-400">Сканируйте<br/>стикер WB</h3>
+                     // IDLE STATE
+                     <div className="flex-1 bg-white rounded-3xl border-4 border-dashed border-gray-200 flex flex-col items-center justify-center">
+                        <PackageCheck className="w-32 h-32 text-gray-200 mb-8" />
+                        <h3 className="text-4xl font-bold text-gray-300">Сканируйте стикер WB</h3>
+                        <div className="w-full max-w-xl mt-12">
+                            <ScannerInput 
+                                onScan={handleScanInput} 
+                                isDisabled={false} 
+                                mode="neutral"
+                                placeholder="Ожидание сканирования..."
+                            />
+                        </div>
                      </div>
                   ) : (
-                     <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-fuchsia-100 flex-1 flex flex-col">
-                        <div className="bg-fuchsia-600 text-white text-center py-2 font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2">
-                           <Zap className="w-4 h-4 fill-white animate-bounce" /> НАЙДЕН
-                        </div>
-                        <div className="relative h-64 bg-gray-100 flex items-center justify-center overflow-hidden">
+                     // ACTIVE STATE (Two Columns)
+                     <div className="h-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        
+                        {/* LEFT: MASSIVE IMAGE (8 Cols) */}
+                        <div className="lg:col-span-8 bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden relative flex items-center justify-center p-8">
+                           <div className="absolute top-4 left-4 z-10 bg-fuchsia-600 text-white px-4 py-2 rounded-full font-bold uppercase tracking-wider text-sm flex items-center gap-2 shadow-lg">
+                              <Zap className="w-4 h-4 fill-white animate-pulse" /> Товар найден
+                           </div>
                            <ProductImage 
                               src={activeOrder.photoUrl} 
                               alt="Товар" 
-                              className="w-full h-full"
+                              className="w-full h-full max-h-[80vh]" // Limit height so it doesn't overflow container
                            />
-                           {activeOrder.size && (
-                              <div className="absolute top-4 right-4 bg-white/90 backdrop-blur text-gray-900 font-black text-2xl px-4 py-2 rounded-lg shadow-lg border border-gray-100">
-                                 {activeOrder.size}
-                              </div>
-                           )}
                         </div>
-                        <div className="p-6 flex-1 flex flex-col justify-center">
-                           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{activeOrder.brand}</div>
-                           <h2 className="text-4xl font-black leading-none mb-4 text-gray-900 break-words tracking-tight">
-                              {activeOrder.vendorCode}
-                           </h2>
-                           <div className="flex items-center gap-4 mt-auto pt-4 border-t border-gray-100">
-                              <div className="ml-auto text-right">
-                                 <div className="text-[10px] uppercase text-gray-400 font-bold">Баркод</div>
-                                 <BarcodeDisplay code={activeOrder.stickerId} />
+
+                        {/* RIGHT: INFO PANEL (4 Cols) */}
+                        <div className="lg:col-span-4 flex flex-col gap-4 h-full">
+                           <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-200 flex-1 flex flex-col justify-center text-center lg:text-left">
+                              
+                              <div className="mb-8">
+                                 <div className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Бренд</div>
+                                 <div className="text-2xl font-bold text-gray-700">{activeOrder.brand}</div>
                               </div>
+
+                              <div className="mb-10">
+                                 <div className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Артикул</div>
+                                 <div className="text-5xl lg:text-6xl font-black text-gray-900 tracking-tight break-words leading-none">
+                                    {activeOrder.vendorCode}
+                                 </div>
+                              </div>
+
+                              <div className="mb-auto">
+                                 <div className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Размер</div>
+                                 <div className="inline-block bg-gray-100 text-gray-900 text-7xl lg:text-8xl font-black px-8 py-4 rounded-2xl border-2 border-gray-200">
+                                    {activeOrder.size || '-'}
+                                 </div>
+                              </div>
+                              
+                              <div className="mt-8 pt-8 border-t border-gray-100">
+                                 <div className="text-xs font-bold text-gray-400 uppercase mb-1">Баркод стикера</div>
+                                 <div className="text-xl font-mono text-gray-600"><BarcodeDisplay code={activeOrder.stickerId} /></div>
+                              </div>
+                           </div>
+
+                           {/* INPUT BOX */}
+                           <div className="bg-fuchsia-50 rounded-2xl p-4 border-2 border-fuchsia-100 shadow-lg">
+                              <div className="text-fuchsia-800 font-bold mb-2 uppercase text-sm ml-1">Сканируйте КИЗ</div>
+                              <ScannerInput 
+                                 onScan={handleScanInput} 
+                                 isDisabled={false} 
+                                 mode="active"
+                                 placeholder="КИЗ (Data Matrix)..."
+                              />
                            </div>
                         </div>
                      </div>
                   )}
-
-                  <div className="bg-white/80 backdrop-blur rounded-2xl p-2 sticky bottom-0">
-                     <ScannerInput 
-                        onScan={handleScanInput} 
-                        isDisabled={false} 
-                        mode={activeOrder ? 'active' : 'neutral'}
-                        placeholder={activeOrder ? "СКАНИРУЙТЕ КИЗ" : "Жду стикер WB..."}
-                     />
-                  </div>
                </div>
             )}
 
             {activeTab === 'LIST' && (
-               <div className="p-4 flex flex-col gap-3 min-h-full">
-                  <div className="flex p-1 bg-gray-200/80 rounded-xl mb-2">
-                     <button onClick={() => setListMode('PRINTS')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg ${listMode === 'PRINTS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>Принты</button>
-                     <button onClick={() => setListMode('SIZES')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg ${listMode === 'SIZES' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>Размеры</button>
-                     <button onClick={() => setListMode('ITEMS')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg ${listMode === 'ITEMS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>Список</button>
+               <div className="max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-200 h-full overflow-hidden flex flex-col">
+                  {/* List Controls */}
+                  <div className="p-4 border-b border-gray-100 bg-gray-50 flex gap-4">
+                     <button onClick={() => setListMode('PRINTS')} className={`px-6 py-2 rounded-lg font-bold text-sm ${listMode === 'PRINTS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>По принтам</button>
+                     <button onClick={() => setListMode('SIZES')} className={`px-6 py-2 rounded-lg font-bold text-sm ${listMode === 'SIZES' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>По размерам</button>
+                     <button onClick={() => setListMode('ITEMS')} className={`px-6 py-2 rounded-lg font-bold text-sm ${listMode === 'ITEMS' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-500'}`}>Все товары</button>
+                     
+                     <div className="ml-auto">
+                        <input 
+                           type="text" 
+                           placeholder="Поиск..." 
+                           className="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:border-fuchsia-500 w-64"
+                           value={listSearch}
+                           onChange={e => setListSearch(e.target.value)}
+                        />
+                     </div>
                   </div>
-                  {listMode === 'PRINTS' && (
-                     <div className="space-y-3">
-                        {statsByPrint.map((group: any) => (
-                           <div key={group.vendorCode} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-3">
-                              <div className="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                                 <ProductImage src={group.photoUrl} alt="" className="w-full h-full" />
-                              </div>
-                              <div className="flex-1">
-                                 <div className="flex justify-between">
-                                    <div className="font-bold text-gray-900">{group.vendorCode}</div>
-                                    <div className="bg-fuchsia-50 text-fuchsia-700 font-bold px-2 rounded">{group.total}</div>
+
+                  {/* List Content */}
+                  <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
+                     {listMode === 'PRINTS' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                           {statsByPrint.map((group: any) => (
+                              <div key={group.vendorCode} className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex gap-4 hover:shadow-md transition-shadow">
+                                 <div className="w-24 h-32 bg-gray-100 rounded-lg overflow-hidden shrink-0">
+                                    <ProductImage src={group.photoUrl} alt="" className="w-full h-full" />
                                  </div>
-                                 <div className="mt-2 flex flex-wrap gap-1">
-                                    {Object.entries(group.sizes).map(([s, c]: any) => (
-                                       <div key={s} className="bg-gray-100 text-xs px-1.5 py-0.5 rounded text-gray-600">{s}: <b>{c}</b></div>
-                                    ))}
-                                 </div>
-                              </div>
-                           </div>
-                        ))}
-                     </div>
-                  )}
-                  {listMode === 'SIZES' && (
-                     <div className="grid grid-cols-2 gap-3">
-                        {statsBySize.map(([size, count]) => (
-                           <div key={size} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center">
-                              <div className="text-4xl font-black text-gray-900 mb-1">{count}</div>
-                              <div className="text-sm font-bold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{size}</div>
-                           </div>
-                        ))}
-                     </div>
-                  )}
-                  {listMode === 'ITEMS' && (
-                     <div className="space-y-3">
-                        {filteredItems.map(item => (
-                            <div key={item.id} className={`bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex gap-3 ${item.status === 'done' ? 'opacity-60 grayscale' : ''}`}>
-                                <div className="w-12 h-16 bg-gray-100 rounded flex-shrink-0 relative overflow-hidden">
-                                    <ProductImage src={item.photoUrl} alt="" className="w-full h-full" />
-                                    {item.status === 'done' && <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center"><CheckCircle2 className="text-green-600"/></div>}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-sm truncate">{item.vendorCode}</div>
-                                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                                        <span className="bg-gray-100 px-1 rounded font-bold">{item.size}</span>
-                                        <span className="font-mono">{item.stickerId}</span>
+                                 <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start mb-2">
+                                       <div className="font-bold text-lg text-gray-900 truncate pr-2">{group.vendorCode}</div>
+                                       <span className="bg-fuchsia-100 text-fuchsia-700 font-bold px-3 py-1 rounded-lg">{group.total}</span>
                                     </div>
-                                </div>
-                            </div>
-                        ))}
-                     </div>
-                  )}
+                                    <div className="text-sm text-gray-500 mb-3">{group.title}</div>
+                                    <div className="flex flex-wrap gap-2">
+                                       {Object.entries(group.sizes).map(([s, c]: any) => (
+                                          <span key={s} className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold border border-gray-200">
+                                             {s}: <span className="text-gray-900">{c}</span>
+                                          </span>
+                                       ))}
+                                    </div>
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     )}
+
+                     {listMode === 'SIZES' && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                           {statsBySize.map(([size, count]) => (
+                              <div key={size} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col items-center justify-center text-center aspect-square">
+                                 <div className="text-6xl font-black text-gray-900 mb-2">{count}</div>
+                                 <div className="text-lg font-bold text-gray-500 bg-gray-100 px-4 py-1 rounded-full">{size}</div>
+                              </div>
+                           ))}
+                        </div>
+                     )}
+
+                     {listMode === 'ITEMS' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                           {filteredItems.map(item => (
+                               <div key={item.id} className={`bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex gap-4 ${item.status === 'done' ? 'opacity-60 grayscale' : ''}`}>
+                                   <div className="w-20 h-28 bg-gray-100 rounded-lg shrink-0 relative overflow-hidden">
+                                       <ProductImage src={item.photoUrl} alt="" className="w-full h-full" />
+                                       {item.status === 'done' && <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center"><CheckCircle2 className="text-green-600 w-8 h-8"/></div>}
+                                   </div>
+                                   <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                       <div className="font-bold text-gray-900 truncate mb-1">{item.vendorCode}</div>
+                                       <div className="text-xs text-gray-500 mb-2 truncate">{item.title}</div>
+                                       <div className="mt-auto flex items-center justify-between">
+                                           <span className="bg-gray-100 px-2 py-1 rounded font-bold text-sm">{item.size}</span>
+                                           <span className="font-mono text-xs text-gray-400">{item.stickerId}</span>
+                                       </div>
+                                   </div>
+                               </div>
+                           ))}
+                        </div>
+                     )}
+                  </div>
                </div>
             )}
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex pb-safe">
-             <button onClick={() => setActiveTab('SCANNER')} className={`flex-1 py-4 flex flex-col items-center ${activeTab === 'SCANNER' ? 'text-fuchsia-600' : 'text-gray-400'}`}>
-                <ScanBarcode /> <span className="text-[10px] font-bold">СКАНЕР</span>
-             </button>
-             <button onClick={() => setActiveTab('LIST')} className={`flex-1 py-4 flex flex-col items-center ${activeTab === 'LIST' ? 'text-fuchsia-600' : 'text-gray-400'}`}>
-                <ListIcon /> <span className="text-[10px] font-bold">СПИСОК</span>
-             </button>
-          </div>
+          </main>
         </div>
       )}
     </div>
