@@ -123,11 +123,9 @@ app.post('/api/orders', async (req, res) => {
     }
 
     // 4.5. Fallback for Missing Info (Public Card JSON)
-    // If Content API failed or returned incomplete data for some NMs, try to fetch from public JSON
     const missingNmIds = nmIds.filter(nm => !productInfoMap[nm] || !productInfoMap[nm].sizes || productInfoMap[nm].sizes.length === 0);
     
     if (missingNmIds.length > 0) {
-        // Limit parallel requests to avoid timeouts (batches of 10)
         const batchSize = 10;
         for (let i = 0; i < missingNmIds.length; i += batchSize) {
              const batch = missingNmIds.slice(i, i + batchSize);
@@ -142,15 +140,15 @@ app.post('/api/orders', async (req, res) => {
                      const cardRes = await fetch(cardUrl);
                      if (cardRes.ok) {
                          const cardData = await cardRes.json();
-                         // Merge into productInfoMap
                          productInfoMap[nm] = {
                              title: cardData.subj_name || cardData.imt_name || "",
                              brand: cardData.selling?.brand_name || "",
                              imageUrl: productInfoMap[nm]?.imageUrl || `https://${host}/vol${vol}/part${part}/${nm}/images/c516x688/1.jpg`,
                              sizes: cardData.sizes ? cardData.sizes.map(s => ({
-                                 chrtID: s.chrt_id || s.id, // Usually chrt_id in public json
+                                 chrtID: s.chrt_id || s.id, 
                                  techSize: s.tech_size,
-                                 wbSize: s.wb_size
+                                 wbSize: s.wb_size,
+                                 skus: s.skus || [] // Ensure SKUs are passed for fallback matching
                              })) : []
                          };
                      }
@@ -158,7 +156,6 @@ app.post('/api/orders', async (req, res) => {
              }));
         }
     }
-
 
     // 5. Assemble
     const mergedOrders = [];
@@ -170,23 +167,32 @@ app.post('/api/orders', async (req, res) => {
       
       const finalTitle = info?.title || `Товар ${ro.nmId}`;
       const finalBrand = info?.brand || '';
-      // Fallback image generator if still null
       const finalPhoto = info?.imageUrl || generateWbImageUrl(ro.nmId);
 
-      // Determine Size
+      // --- SIZE MATCHING LOGIC ---
       let finalSize = '';
-      if (info && info.sizes && ro.chrtId) {
-          // Public JSON usually uses chrt_id (number). FBS uses chrtId (number).
-          // Content API uses chrtID (number).
-          // We cast to String to be safe.
-          const sizeObj = info.sizes.find(s => String(s.chrtID) === String(ro.chrtId));
+      if (info && info.sizes) {
+          let sizeObj = null;
+
+          // Strategy 1: Match by chrtId (Standard)
+          if (ro.chrtId) {
+             sizeObj = info.sizes.find(s => String(s.chrtID) === String(ro.chrtId));
+          }
+
+          // Strategy 2: Match by SKUs (Fallback)
+          // Often FBS orders have 'skus' array (barcodes), and Content sizes also have 'skus'.
+          if (!sizeObj && ro.skus && Array.isArray(ro.skus)) {
+             sizeObj = info.sizes.find(s => 
+                 s.skus && s.skus.some(sku => ro.skus.includes(sku))
+             );
+          }
+
           if (sizeObj) {
               finalSize = sizeObj.techSize || sizeObj.wbSize || '';
           }
       }
 
       let displaySticker = String(ro.id);
-
       if (stickerObj) {
         if (stickerObj.barcode) {
             const raw = stickerObj.barcode.trim();
@@ -208,7 +214,7 @@ app.post('/api/orders', async (req, res) => {
         vendorCode: ro.article || '',
         title: finalTitle,
         brand: finalBrand,
-        size: finalSize,
+        size: finalSize, // Populated Size
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl: finalPhoto,
         isSgtinRequired: true,
@@ -303,7 +309,7 @@ function getBasketHost(nmId) {
     if (vol <= 7589) return 'basket-39.wbbasket.ru';
     if (vol <= 7805) return 'basket-40.wbbasket.ru';
     if (vol <= 8021) return 'basket-41.wbbasket.ru';
-    return 'basket-42.wbbasket.ru'; // Fallback for very new
+    return 'basket-42.wbbasket.ru';
 }
 
 function generateWbImageUrl(nmId) {
