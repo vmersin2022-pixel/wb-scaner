@@ -5,8 +5,8 @@ export default async function handler(req, res) {
 
   const { token, supplyId } = req.body;
 
-  if (!token || !supplyId) {
-    return res.status(400).json({ error: 'Missing token or supplyId' });
+  if (!token) {
+    return res.status(400).json({ error: 'Missing token' });
   }
 
   try {
@@ -16,8 +16,8 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Get Orders
-    const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/supplies/${supplyId}/orders`;
+    // 1. Get Orders using the new endpoint (old supplies/{id}/orders is deprecated)
+    const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/new`;
     const ordersRes = await fetch(ordersUrl, { headers });
 
     if (!ordersRes.ok) {
@@ -26,17 +26,27 @@ export default async function handler(req, res) {
     }
 
     const ordersData = await ordersRes.json();
-    const rawOrders = ordersData.orders || [];
+    let rawOrders = ordersData.orders || [];
+
+    // Filter by supplyId if provided (Client side filtering since API doesn't support it in URL anymore)
+    if (supplyId) {
+      // Create a normalized version for comparison (trim whitespace, ignore case)
+      const targetSupply = supplyId.trim();
+      rawOrders = rawOrders.filter(o => o.supplyId === targetSupply);
+    }
 
     if (rawOrders.length === 0) {
-      return res.status(200).json({ orders: [], map: {} });
+      return res.status(200).json({ 
+        orders: [], 
+        map: {},
+        message: supplyId ? `No orders found for supply ${supplyId}` : 'No new orders found'
+      });
     }
 
     // 2. Get Stickers (Chunked)
     const orderIds = rawOrders.map((o) => o.id);
     
-    // Fetch only first 100 for basic operation to fit strict timeouts/limits in MVP.
-    // In production, you would loop through all chunks properly.
+    // Fetch stickers in chunks
     const chunks = [];
     for (let i = 0; i < orderIds.length; i += 100) {
       chunks.push(orderIds.slice(i, i + 100));
@@ -75,7 +85,10 @@ export default async function handler(req, res) {
         stickerCode = `UNKNOWN-${ro.id}`;
       }
       
-      const photoUrl = `https://basket-01.wb.ru/vol${Math.floor(ro.nmId / 100000)}/part${Math.floor(ro.nmId / 1000)}/${ro.nmId}/images/c246x328/1.jpg`; 
+      // Construct photo URL (standard WB logic)
+      const vol = Math.floor(ro.nmId / 100000);
+      const part = Math.floor(ro.nmId / 1000);
+      const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
 
       const order = {
         id: ro.id,
@@ -85,10 +98,11 @@ export default async function handler(req, res) {
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl,
         isSgtinRequired: true,
-        status: 'pending'
+        status: 'pending' // You might check ro.status if available, but usually 'new' means pending
       };
 
       mergedOrders.push(order);
+      // Map both exact and potential formats
       barcodeMap[stickerCode] = ro.id;
     });
 
