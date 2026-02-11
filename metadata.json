@@ -1,0 +1,5 @@
+{
+  "name": "WB FBS Scanner",
+  "description": "Warehouse PWA for scanning Wildberries orders and linking 'Honest Sign' (KIZ) codes using hardware scanners.",
+  "requestFramePermissions": []
+}
