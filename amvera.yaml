@@ -7,6 +7,11 @@ build:
   script: |
     npm install
     npm run build
+  artifacts:
+    - dist
+    - server.js
+    - package.json
+    - node_modules
 run:
   script: npm start
   persistence: []
