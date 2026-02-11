@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const { token, supplyId } = req.body;
 
   if (!token) {
-    return res.status(400).json({ error: 'Missing token' });
+    return res.status(400).json({ error: 'Не указан токен' });
   }
 
   try {
@@ -16,45 +16,44 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Get Orders using the new endpoint (old supplies/{id}/orders is deprecated)
+    // 1. Используем метод orders/new вместо устаревшего supplies/{id}/orders
+    // Этот метод возвращает все новые сборочные задания
     const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/new`;
     const ordersRes = await fetch(ordersUrl, { headers });
 
     if (!ordersRes.ok) {
       const errText = await ordersRes.text();
-      return res.status(ordersRes.status).json({ error: `WB API Error (Orders): ${errText}` });
+      return res.status(ordersRes.status).json({ error: `WB API Error: ${errText}` });
     }
 
     const ordersData = await ordersRes.json();
     let rawOrders = ordersData.orders || [];
 
-    // Filter by supplyId if provided (Client side filtering since API doesn't support it in URL anymore)
-    if (supplyId) {
-      // Create a normalized version for comparison (trim whitespace, ignore case)
-      const targetSupply = supplyId.trim();
-      rawOrders = rawOrders.filter(o => o.supplyId === targetSupply);
+    // 2. Фильтрация на сервере (так как API отдает всё подряд)
+    // Если supplyId передан, ищем совпадения. Если нет - берем всё.
+    if (supplyId && supplyId.trim() !== '') {
+      const target = supplyId.trim().toLowerCase();
+      rawOrders = rawOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(target));
     }
 
     if (rawOrders.length === 0) {
       return res.status(200).json({ 
         orders: [], 
-        map: {},
-        message: supplyId ? `No orders found for supply ${supplyId}` : 'No new orders found'
+        map: {}, 
+        message: 'Заказы по данной поставке не найдены' 
       });
     }
 
-    // 2. Get Stickers (Chunked)
+    // 3. Получение стикеров (для баркодов)
     const orderIds = rawOrders.map((o) => o.id);
-    
-    // Fetch stickers in chunks
     const chunks = [];
+    // Разбиваем по 100 ID, чтобы не превысить лимиты WB
     for (let i = 0; i < orderIds.length; i += 100) {
       chunks.push(orderIds.slice(i, i + 100));
     }
 
     let allStickers = [];
 
-    // Process chunks sequentially
     for (const chunk of chunks) {
       const stickersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/stickers?type=svg&width=58&height=40`;
       const stickersRes = await fetch(stickersUrl, {
@@ -69,9 +68,11 @@ export default async function handler(req, res) {
           allStickers = [...allStickers, ...stickersData.data];
         }
       }
+      // Небольшая задержка, чтобы не спамить API
+      await new Promise(r => setTimeout(r, 100)); 
     }
 
-    // 3. Merge and Return
+    // 4. Сборка данных
     const mergedOrders = [];
     const barcodeMap = {};
 
@@ -82,10 +83,10 @@ export default async function handler(req, res) {
       if (stickerObj && stickerObj.partA && stickerObj.partB) {
         stickerCode = `${stickerObj.partA}${stickerObj.partB}`;
       } else {
-        stickerCode = `UNKNOWN-${ro.id}`;
+        // Fallback если стикер не нашелся, используем ID заказа как ключ (маловероятно для сканера)
+        stickerCode = String(ro.id);
       }
       
-      // Construct photo URL (standard WB logic)
       const vol = Math.floor(ro.nmId / 100000);
       const part = Math.floor(ro.nmId / 1000);
       const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
@@ -94,15 +95,14 @@ export default async function handler(req, res) {
         id: ro.id,
         stickerId: stickerCode,
         article: ro.nmId ? ro.nmId.toString() : 'N/A',
-        title: `WB Item ${ro.nmId}`, 
+        title: `Товар ${ro.nmId}`, // WB API orders/new не всегда отдает название, берем ID
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl,
-        isSgtinRequired: true,
-        status: 'pending' // You might check ro.status if available, but usually 'new' means pending
+        isSgtinRequired: true, // В рамках задачи считаем что всем нужен КИЗ
+        status: 'pending'
       };
 
       mergedOrders.push(order);
-      // Map both exact and potential formats
       barcodeMap[stickerCode] = ro.id;
     });
 

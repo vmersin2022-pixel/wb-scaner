@@ -3,9 +3,10 @@ import React, { useEffect, useRef, useState } from 'react';
 interface ScannerInputProps {
   onScan: (code: string) => void;
   isDisabled?: boolean;
+  placeholder?: string;
 }
 
-export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled }) => {
+export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled, placeholder }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [buffer, setBuffer] = useState('');
 
@@ -13,17 +14,28 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled }
   useEffect(() => {
     const focusInput = () => {
       if (!isDisabled && inputRef.current) {
-        inputRef.current.focus();
+        // Проверяем, не фокус ли уже на другом элементе ввода
+        if (document.activeElement !== inputRef.current) {
+           inputRef.current.focus();
+        }
       }
     };
 
-    const interval = setInterval(focusInput, 2000);
-    window.addEventListener('click', focusInput);
+    const interval = setInterval(focusInput, 3000);
+    // При клике в любом месте возвращаем фокус, если это не кнопки
+    const handleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT') {
+            focusInput();
+        }
+    }
+
+    window.addEventListener('click', handleClick);
     focusInput();
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('click', focusInput);
+      window.removeEventListener('click', handleClick);
     };
   }, [isDisabled]);
 
@@ -41,7 +53,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled }
   };
 
   return (
-    <div className="absolute top-0 left-0 w-0 h-0 overflow-hidden opacity-0">
+    <div className="w-full mt-4">
       <input
         ref={inputRef}
         type="text"
@@ -50,6 +62,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled }
         onKeyDown={handleKeyDown}
         autoComplete="off"
         disabled={isDisabled}
+        placeholder={placeholder || "Сканируйте здесь..."}
+        className="w-full p-4 text-lg border-2 border-blue-400 rounded-lg shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-600 transition-all text-gray-700 placeholder-gray-400 bg-white"
       />
     </div>
   );
