@@ -16,36 +16,58 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Используем метод orders/new (все новые задания)
-    const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/new`;
-    const ordersRes = await fetch(ordersUrl, { headers });
+    // 1. Получаем список заказов через /api/v3/orders (история/инфо)
+    // Этот метод возвращает все заказы (включая "на сборке"), в отличие от /orders/new
+    // Используем пагинацию, чтобы просмотреть последние заказы (по умолчанию API отдает за 30 дней)
+    
+    let allOrders = [];
+    let next = 0;
+    let fetchCount = 0;
+    const MAX_REQUESTS = 10; // Ограничение: проверяем последние ~10,000 заказов, чтобы не было таймаута
 
-    if (!ordersRes.ok) {
-      const errText = await ordersRes.text();
-      // Если 404 здесь, значит эндпоинт вообще неправильный, но orders/new актуален
-      return res.status(ordersRes.status).json({ error: `WB API Error (Orders): ${errText}` });
-    }
+    do {
+        // limit=1000 - максимум API
+        const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders?limit=1000&next=${next}`;
+        const ordersRes = await fetch(ordersUrl, { headers });
 
-    const ordersData = await ordersRes.json();
-    let rawOrders = ordersData.orders || [];
+        if (!ordersRes.ok) {
+            const errText = await ordersRes.text();
+            return res.status(ordersRes.status).json({ error: `WB API Error (Orders): ${errText}` });
+        }
 
-    // 2. Фильтрация по supplyId на нашей стороне
+        const data = await ordersRes.json();
+        const chunk = data.orders || [];
+        allOrders = [...allOrders, ...chunk];
+        
+        next = data.next;
+        fetchCount++;
+
+        // Прерываем, если курсор 0 или данные кончились
+    } while (next && next !== 0 && fetchCount < MAX_REQUESTS);
+
+    // 2. Фильтрация по ID поставки (supplyId)
+    let filteredOrders = [];
     if (supplyId && supplyId.trim() !== '') {
-      const target = supplyId.trim().toLowerCase();
-      rawOrders = rawOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(target));
+      const target = supplyId.trim();
+      // Строгое сравнение ID поставки
+      filteredOrders = allOrders.filter(o => o.supplyId === target);
+    } else {
+      // Если ID поставки не указан, возвращаем все найденные (резервный вариант)
+      filteredOrders = allOrders;
     }
 
-    if (rawOrders.length === 0) {
+    if (filteredOrders.length === 0) {
       return res.status(200).json({ 
         orders: [], 
         map: {}, 
-        message: 'Заказы по данной поставке не найдены среди новых' 
+        message: 'Заказы по данной поставке не найдены (проверено за последние 30 дней)' 
       });
     }
 
-    // 3. Получение стикеров (баркодов)
-    const orderIds = rawOrders.map((o) => o.id);
+    // 3. Получение стикеров (баркодов) для найденных заказов
+    const orderIds = filteredOrders.map((o) => o.id);
     const chunks = [];
+    // Лимит WB: 100 заказов за один запрос стикеров
     for (let i = 0; i < orderIds.length; i += 100) {
       chunks.push(orderIds.slice(i, i + 100));
     }
@@ -62,30 +84,31 @@ export default async function handler(req, res) {
 
       if (stickersRes.ok) {
         const stickersData = await stickersRes.json();
-        // ВАЖНО: поле называется stickers, а не data (согласно документации)
+        // ВАЖНО: используем поле .stickers согласно документации v3
         if (stickersData.stickers) {
           allStickers = [...allStickers, ...stickersData.stickers];
         }
       }
-      // Задержка против лимитов
+      // Небольшая задержка, чтобы не превысить лимиты API
       await new Promise(r => setTimeout(r, 100)); 
     }
 
-    // 4. Сборка результата
+    // 4. Сборка итогового ответа
     const mergedOrders = [];
     const barcodeMap = {};
 
-    rawOrders.forEach((ro) => {
+    filteredOrders.forEach((ro) => {
       const stickerObj = allStickers.find((s) => s.orderId === ro.id);
       
       let stickerCode = '';
       if (stickerObj && stickerObj.partA && stickerObj.partB) {
         stickerCode = `${stickerObj.partA}${stickerObj.partB}`;
       } else {
+        // Fallback, если стикер не найден (маловероятно для активных заказов)
         stickerCode = String(ro.id);
       }
       
-      // Фото товара
+      // Формирование ссылки на фото
       const vol = Math.floor(ro.nmId / 100000);
       const part = Math.floor(ro.nmId / 1000);
       const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
@@ -102,9 +125,7 @@ export default async function handler(req, res) {
       };
 
       mergedOrders.push(order);
-      // Ключи для карты поиска
       barcodeMap[stickerCode] = ro.id;
-      // Иногда сканер читает иначе, можно добавлять вариации если нужно
     });
 
     return res.status(200).json({ orders: mergedOrders, map: barcodeMap });
