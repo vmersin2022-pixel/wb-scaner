@@ -3,8 +3,13 @@ meta:
   toolchain:
     name: node
     version: 20
+
 build:
+  # Устанавливаем все зависимости и собираем фронтенд через Vite
   command: npm install && npm run build
+
 run:
-  # Вместо npm run dev используем раздачу статики
-  command: cp -r dist/* /usr/share/nginx/html/
+  # Запускаем Express сервер, который раздает статику и обрабатывает API
+  command: npm run start
+  persistence:
+    /data: data
