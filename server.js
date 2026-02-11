@@ -236,10 +236,32 @@ app.post('/api/orders', async (req, res) => {
     }
 
     // B. Filter
+    // 1. By Supply ID
+    // 2. EXCLUDE Canceled (isCancel === true)
+    // 3. EXCLUDE New/Unconfirmed (userStatus === 0) - because user wants "Assembly" items only
+    // 4. EXCLUDE Sold/Delivering (userStatus > 1) just in case
     let filteredOrders = allOrders;
+    
     if (supplyId && supplyId.trim()) {
         const t = supplyId.trim().toLowerCase();
-        filteredOrders = allOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(t));
+        filteredOrders = allOrders.filter(o => {
+            // Must match Supply ID
+            const matchSupply = o.supplyId && o.supplyId.toLowerCase().includes(t);
+            if (!matchSupply) return false;
+
+            // Strict Status Filters
+            if (o.isCancel === true) return false; // Exclude client cancellations
+            
+            // userStatus 0 = New (Not yet on assembly)
+            // userStatus 1 = On Assembly
+            // We only want 1.
+            if (typeof o.userStatus !== 'undefined') {
+                 if (o.userStatus === 0) return false; // Hide "New" (6 items in screenshot)
+                 if (o.userStatus >= 2) return false;  // Hide "Delivering/Sold"
+            }
+
+            return true;
+        });
     }
 
     if (filteredOrders.length === 0) {
