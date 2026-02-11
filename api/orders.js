@@ -158,12 +158,12 @@ export default async function handler(req, res) {
 }
 
 // Обновленная функция для генерации ссылок на изображения WB
-// Использует актуальные домены wbbasket.ru и расширенные диапазоны томов
+// Добавлены basket-23, 24, 25 для новых товаров (2025 год)
 function getWbImageUrl(nmId) {
     const vol = Math.floor(nmId / 100000);
     const part = Math.floor(nmId / 1000);
     
-    // Актуальная карта серверов на 2024/2025
+    // Актуальная карта серверов
     const hosts = [
         { range: [0, 143], host: 'basket-01.wbbasket.ru' },
         { range: [144, 287], host: 'basket-02.wbbasket.ru' },
@@ -186,11 +186,14 @@ function getWbImageUrl(nmId) {
         { range: [3054, 3269], host: 'basket-19.wbbasket.ru' },
         { range: [3270, 3485], host: 'basket-20.wbbasket.ru' },
         { range: [3486, 3701], host: 'basket-21.wbbasket.ru' },
-        { range: [3702, 3917], host: 'basket-22.wbbasket.ru' }
+        { range: [3702, 3917], host: 'basket-22.wbbasket.ru' },
+        { range: [3918, 4133], host: 'basket-23.wbbasket.ru' },
+        { range: [4134, 4349], host: 'basket-24.wbbasket.ru' },
+        { range: [4350, 4565], host: 'basket-25.wbbasket.ru' }
     ];
 
     const match = hosts.find(h => vol >= h.range[0] && vol <= h.range[1]);
-    const host = match ? match.host : 'basket-23.wbbasket.ru'; // Fallback
+    const host = match ? match.host : 'basket-25.wbbasket.ru'; // Fallback
 
     return `https://${host}/vol${vol}/part${part}/${nmId}/images/c516x688/1.jpg`;
 }
