@@ -6,4 +6,5 @@ meta:
 build:
   command: npm install && npm run build
 run:
-  command: npm run dev
+  # Вместо npm run dev используем раздачу статики
+  command: cp -r dist/* /usr/share/nginx/html/
