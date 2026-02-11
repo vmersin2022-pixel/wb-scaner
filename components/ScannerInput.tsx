@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ScanBarcode, Camera, X, AlertCircle } from 'lucide-react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 interface ScannerInputProps {
   onScan: (code: string) => void;
@@ -22,7 +22,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const isProcessingRef = useRef(false); // Lock to prevent double scans/freezes
+  const isProcessingRef = useRef(false); 
   const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- HARDWARE SCANNER LOGIC (Inputs) ---
@@ -74,9 +74,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     setBuffer('');
   };
 
-  // --- CAMERA LOGIC (FULLSCREEN & ROBUST) ---
+  // --- CAMERA LOGIC (FULLSCREEN) ---
   
-  // Helper to safely stop scanner
   const stopScanner = async () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
           try {
@@ -100,69 +99,60 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
       setCameraError(null);
       isProcessingRef.current = false;
       
-      // Delay to ensure DOM is ready
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 100)); // UI delay
 
       const scannerId = "reader";
       if (!document.getElementById(scannerId)) return;
 
       try {
-        // Destroy previous instance if exists
         if (scannerRef.current) {
             try { await scannerRef.current.clear(); } catch(e){}
         }
 
         scannerRef.current = new Html5Qrcode(scannerId);
 
+        // Config for Fullscreen Mobile Scanning
         const config = { 
-            fps: 15, // Higher FPS for smoother feel
+            fps: 15, 
             qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-                // Large responsive box (80% of min dimension)
+                // Maximize scanning area (85% of smaller screen dimension)
                 const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
                 return {
-                    width: Math.floor(minEdge * 0.8),
-                    height: Math.floor(minEdge * 0.8)
+                    width: Math.floor(minEdge * 0.85),
+                    height: Math.floor(minEdge * 0.85)
                 };
             },
-            aspectRatio: window.innerHeight / window.innerWidth // Fullscreen aspect ratio
+            aspectRatio: window.innerHeight / window.innerWidth
         };
 
         await scannerRef.current.start(
             { facingMode: "environment" }, 
             config,
             async (decodedText) => {
-                // SUCCESS CALLBACK
                 if (isProcessingRef.current) return;
                 isProcessingRef.current = true;
                 
                 console.log("Cam Scan:", decodedText);
                 
-                // 1. Stop camera stream immediately to free resources
+                // CRITICAL: Stop camera BEFORE updating state to prevent freeze
                 await stopScanner();
-                
-                // 2. Update UI
                 setShowCamera(false);
                 triggerScan(decodedText);
             },
-            (errorMessage) => {
-                // Scan error (ignore)
-            }
+            (errorMessage) => { /* ignore per-frame errors */ }
         );
 
       } catch (err: any) {
         console.error("Camera Start Error:", err);
-        setCameraError("Нет доступа к камере.");
+        setCameraError("Ошибка доступа к камере. Проверьте разрешения.");
       }
     };
 
     startScanner();
 
-    // Cleanup on unmount
     return () => {
-        // We use a fire-and-forget here because async cleanup in useEffect is tricky
-        // The main stop logic is handled in handleCloseCamera or success callback
         if (scannerRef.current && scannerRef.current.isScanning) {
-             scannerRef.current.stop().catch(console.error);
+             scannerRef.current.stop().catch(() => {});
         }
     };
   }, [showCamera]);
@@ -175,44 +165,44 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   return (
     <div className="w-full mt-4 relative group">
       
-      {/* FULLSCREEN Camera Modal */}
+      {/* FULLSCREEN OVERLAY */}
       {showCamera && (
-         <div className="fixed inset-0 z-[60] bg-black flex flex-col animate-in fade-in duration-200">
+         <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
              
-             {/* Controls Layer (Top) */}
-             <div className="absolute top-0 left-0 right-0 p-4 z-50 flex justify-end bg-gradient-to-b from-black/50 to-transparent">
+             {/* Header */}
+             <div className="absolute top-0 left-0 right-0 p-4 pt-safe z-50 flex justify-end">
                  <button 
                     onClick={handleCloseCamera}
-                    className="bg-white/20 backdrop-blur-md p-3 rounded-full text-white active:scale-95 transition-transform"
+                    className="bg-black/40 backdrop-blur-md p-3 rounded-full text-white/90 active:bg-white/20 transition-all"
                  >
                     <X className="w-8 h-8" />
                  </button>
              </div>
 
-             {/* Camera Viewport */}
-             <div className="flex-1 relative w-full h-full overflow-hidden bg-black">
+             {/* Viewport */}
+             <div className="flex-1 relative w-full h-full bg-black overflow-hidden">
                  <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
                  
-                 {/* Visual Guide Overlay (simulating viewfinder) */}
+                 {/* Guides */}
                  {!cameraError && (
-                    <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none flex items-center justify-center">
-                        <div className="w-full h-full border-2 border-fuchsia-500/50 relative">
-                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-fuchsia-500"></div>
-                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-fuchsia-500"></div>
-                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-fuchsia-500"></div>
-                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-fuchsia-500"></div>
+                    <div className="absolute inset-0 border-[40px] border-black/60 pointer-events-none flex items-center justify-center box-border">
+                        <div className="w-full h-full border-2 border-fuchsia-500/80 relative rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
+                            <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-fuchsia-500 rounded-tl-xl"></div>
+                            <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-fuchsia-500 rounded-tr-xl"></div>
+                            <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-fuchsia-500 rounded-bl-xl"></div>
+                            <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-fuchsia-500 rounded-br-xl"></div>
                         </div>
                     </div>
                  )}
 
-                 {/* Error State */}
+                 {/* Error Msg */}
                  {cameraError && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900 z-50">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-gray-900 z-50">
                        <AlertCircle className="w-16 h-16 text-red-500 mb-6" />
-                       <p className="text-white text-xl font-medium mb-8">{cameraError}</p>
+                       <p className="text-white text-lg font-medium mb-8 opacity-90">{cameraError}</p>
                        <button 
                           onClick={handleCloseCamera}
-                          className="px-8 py-3 bg-white text-black font-bold rounded-xl active:scale-95 transition-transform"
+                          className="px-8 py-3 bg-white text-black font-bold rounded-xl active:scale-95"
                        >
                           Закрыть
                        </button>
@@ -220,10 +210,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
                  )}
              </div>
 
-             {/* Instruction Layer (Bottom) */}
+             {/* Footer Text */}
              {!cameraError && (
-                 <div className="absolute bottom-0 left-0 right-0 p-8 pb-12 bg-gradient-to-t from-black/80 to-transparent z-50 text-center">
-                    <p className="text-white text-lg font-medium drop-shadow-md">
+                 <div className="absolute bottom-0 left-0 right-0 p-8 pb-16 bg-gradient-to-t from-black/90 to-transparent z-50 text-center pointer-events-none">
+                    <p className="text-white/90 text-lg font-medium drop-shadow-md">
                         Наведите камеру на код
                     </p>
                  </div>
@@ -231,7 +221,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
          </div>
       )}
 
-      {/* Input UI (Hidden when camera is open) */}
+      {/* Standard Input UI */}
       <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none ${iconColor} transition-colors duration-300`}>
         <ScanBarcode className={`w-6 h-6 ${mode === 'active' ? 'animate-pulse' : ''}`} />
       </div>
