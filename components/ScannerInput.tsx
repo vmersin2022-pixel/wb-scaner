@@ -22,9 +22,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isProcessingRef = useRef(false); // Lock to prevent double scans/freezes
   const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- HARDWARE SCANNER LOGIC ---
+  // --- HARDWARE SCANNER LOGIC (Inputs) ---
   useEffect(() => {
     const focusInput = () => {
       if (!isDisabled && !showCamera && inputRef.current) {
@@ -73,79 +74,96 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     setBuffer('');
   };
 
-  // --- CAMERA LOGIC (FIXED FOR iOS) ---
-  useEffect(() => {
-    if (!showCamera) {
-      // Cleanup
-      if (scannerRef.current) {
-        scannerRef.current.stop().then(() => {
-          scannerRef.current?.clear();
-        }).catch(err => console.warn("Stop failed", err));
+  // --- CAMERA LOGIC (FULLSCREEN & ROBUST) ---
+  
+  // Helper to safely stop scanner
+  const stopScanner = async () => {
+      if (scannerRef.current && scannerRef.current.isScanning) {
+          try {
+              await scannerRef.current.stop();
+              scannerRef.current.clear();
+          } catch (err) {
+              console.warn("Error stopping scanner:", err);
+          }
       }
-      return;
-    }
+  };
+
+  const handleCloseCamera = async () => {
+      await stopScanner();
+      setShowCamera(false);
+  };
+
+  useEffect(() => {
+    if (!showCamera) return;
 
     const startScanner = async () => {
       setCameraError(null);
+      isProcessingRef.current = false;
       
-      // Delay to ensure DOM element #reader is rendered and has size
-      await new Promise(r => setTimeout(r, 300));
+      // Delay to ensure DOM is ready
+      await new Promise(r => setTimeout(r, 100));
 
       const scannerId = "reader";
-      
-      if (!document.getElementById(scannerId)) {
-        setCameraError("Ошибка инициализации видео");
-        return;
-      }
+      if (!document.getElementById(scannerId)) return;
 
       try {
-        const formats = [ 
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.DATAMATRIX,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.QR_CODE
-        ];
+        // Destroy previous instance if exists
+        if (scannerRef.current) {
+            try { await scannerRef.current.clear(); } catch(e){}
+        }
 
         scannerRef.current = new Html5Qrcode(scannerId);
 
-        // Explicitly request back camera (environment)
-        // This is crucial for iOS
         const config = { 
-            fps: 10, 
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0 
+            fps: 15, // Higher FPS for smoother feel
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+                // Large responsive box (80% of min dimension)
+                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                return {
+                    width: Math.floor(minEdge * 0.8),
+                    height: Math.floor(minEdge * 0.8)
+                };
+            },
+            aspectRatio: window.innerHeight / window.innerWidth // Fullscreen aspect ratio
         };
 
         await scannerRef.current.start(
             { facingMode: "environment" }, 
             config,
-            (decodedText) => {
+            async (decodedText) => {
+                // SUCCESS CALLBACK
+                if (isProcessingRef.current) return;
+                isProcessingRef.current = true;
+                
                 console.log("Cam Scan:", decodedText);
-                triggerScan(decodedText);
+                
+                // 1. Stop camera stream immediately to free resources
+                await stopScanner();
+                
+                // 2. Update UI
                 setShowCamera(false);
+                triggerScan(decodedText);
             },
             (errorMessage) => {
-                // Ignore parse errors, they happen every frame
+                // Scan error (ignore)
             }
         );
 
       } catch (err: any) {
         console.error("Camera Start Error:", err);
-        setCameraError("Нет доступа к камере. Разрешите доступ в настройках браузера.");
+        setCameraError("Нет доступа к камере.");
       }
     };
 
     startScanner();
 
+    // Cleanup on unmount
     return () => {
-       if (scannerRef.current) {
-           try {
-               if (scannerRef.current.isScanning) {
-                   scannerRef.current.stop().catch(console.error);
-               }
-               scannerRef.current.clear();
-           } catch (e) { console.error(e); }
-       }
+        // We use a fire-and-forget here because async cleanup in useEffect is tricky
+        // The main stop logic is handled in handleCloseCamera or success callback
+        if (scannerRef.current && scannerRef.current.isScanning) {
+             scannerRef.current.stop().catch(console.error);
+        }
     };
   }, [showCamera]);
 
@@ -157,44 +175,63 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   return (
     <div className="w-full mt-4 relative group">
       
-      {/* Camera Modal */}
+      {/* FULLSCREEN Camera Modal */}
       {showCamera && (
-         <div className="fixed inset-0 z-[60] bg-black flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
-             <button 
-                onClick={() => setShowCamera(false)}
-                className="absolute top-4 right-4 bg-white/20 p-2 rounded-full text-white z-50 backdrop-blur-md active:scale-95 transition-transform"
-             >
-                <X className="w-8 h-8" />
-             </button>
+         <div className="fixed inset-0 z-[60] bg-black flex flex-col animate-in fade-in duration-200">
              
-             <div className="w-full max-w-sm bg-black rounded-2xl overflow-hidden shadow-2xl relative ring-1 ring-white/20">
-                 {/* The Library attaches video here */}
-                 <div id="reader" className="w-full h-[350px] bg-gray-900"></div>
+             {/* Controls Layer (Top) */}
+             <div className="absolute top-0 left-0 right-0 p-4 z-50 flex justify-end bg-gradient-to-b from-black/50 to-transparent">
+                 <button 
+                    onClick={handleCloseCamera}
+                    className="bg-white/20 backdrop-blur-md p-3 rounded-full text-white active:scale-95 transition-transform"
+                 >
+                    <X className="w-8 h-8" />
+                 </button>
+             </div>
+
+             {/* Camera Viewport */}
+             <div className="flex-1 relative w-full h-full overflow-hidden bg-black">
+                 <div id="reader" className="w-full h-full [&>video]:object-cover [&>video]:w-full [&>video]:h-full"></div>
+                 
+                 {/* Visual Guide Overlay (simulating viewfinder) */}
+                 {!cameraError && (
+                    <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none flex items-center justify-center">
+                        <div className="w-full h-full border-2 border-fuchsia-500/50 relative">
+                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-fuchsia-500"></div>
+                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-fuchsia-500"></div>
+                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-fuchsia-500"></div>
+                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-fuchsia-500"></div>
+                        </div>
+                    </div>
+                 )}
 
                  {/* Error State */}
                  {cameraError && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900/90 backdrop-blur-sm">
-                       <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-                       <p className="text-white text-lg font-medium">{cameraError}</p>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-gray-900 z-50">
+                       <AlertCircle className="w-16 h-16 text-red-500 mb-6" />
+                       <p className="text-white text-xl font-medium mb-8">{cameraError}</p>
                        <button 
-                          onClick={() => setShowCamera(false)}
-                          className="mt-6 px-6 py-2 bg-white text-black font-bold rounded-lg"
+                          onClick={handleCloseCamera}
+                          className="px-8 py-3 bg-white text-black font-bold rounded-xl active:scale-95 transition-transform"
                        >
                           Закрыть
                        </button>
                     </div>
                  )}
              </div>
-             
+
+             {/* Instruction Layer (Bottom) */}
              {!cameraError && (
-                 <p className="text-white mt-6 text-center text-lg font-medium opacity-80 animate-pulse">
-                    Наведите камеру на код
-                 </p>
+                 <div className="absolute bottom-0 left-0 right-0 p-8 pb-12 bg-gradient-to-t from-black/80 to-transparent z-50 text-center">
+                    <p className="text-white text-lg font-medium drop-shadow-md">
+                        Наведите камеру на код
+                    </p>
+                 </div>
              )}
          </div>
       )}
 
-      {/* Input UI */}
+      {/* Input UI (Hidden when camera is open) */}
       <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none ${iconColor} transition-colors duration-300`}>
         <ScanBarcode className={`w-6 h-6 ${mode === 'active' ? 'animate-pulse' : ''}`} />
       </div>
