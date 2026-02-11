@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -224,12 +224,24 @@ const App: React.FC = () => {
             {/* Active Task Info - LARGE PHOTO VIEW */}
             {activeOrder && (
               <div className="bg-white border-2 border-blue-500 shadow-lg p-4 rounded-xl flex flex-col items-center text-center gap-3 mb-4">
-                 <div className="relative w-48 h-64 bg-gray-100 rounded-lg overflow-hidden">
-                   <img 
-                     src={activeOrder.photoUrl} 
-                     className="w-full h-full object-cover" 
-                     alt="Товар" 
-                   />
+                 <div className="relative w-48 h-64 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                   {activeOrder.photoUrl ? (
+                      <img 
+                      src={activeOrder.photoUrl} 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                      }}
+                      className="w-full h-full object-cover" 
+                      alt="Товар" 
+                    />
+                   ) : null}
+                   
+                   {/* Fallback image if loading fails */}
+                   <div className={`absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-400 ${activeOrder.photoUrl ? 'hidden' : ''}`}>
+                      <ImageOff className="w-12 h-12 mb-2" />
+                      <span className="text-xs">Нет фото</span>
+                   </div>
                  </div>
                  
                  <div className="w-full">
