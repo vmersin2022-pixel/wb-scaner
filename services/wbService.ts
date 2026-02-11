@@ -12,6 +12,7 @@ export const demoOrders: WBOrder[] = Array.from({ length: 15 }).map((_, i) => ({
   stickerId: `WB-${Math.floor(Math.random() * 1000)}`,
   article: `ART-${1000 + i}`,
   title: `Wildberries Product Test Item ${i + 1}`,
+  brand: `Brand #${i + 1}`,
   price: Math.floor(Math.random() * 5000) + 500,
   photoUrl: `https://picsum.photos/400/500?random=${i}`,
   isSgtinRequired: true,

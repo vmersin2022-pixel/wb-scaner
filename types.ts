@@ -3,6 +3,7 @@ export interface WBOrder {
   stickerId: string; // The barcode string on the WB sticker
   article: string; // nmId or vendor code
   title: string;
+  brand?: string;
   price: number;
   photoUrl: string;
   isSgtinRequired: boolean;

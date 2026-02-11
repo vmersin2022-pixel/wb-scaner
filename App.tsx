@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck, ImageOff } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -42,7 +42,7 @@ const App: React.FC = () => {
   }, []);
 
   // --- Helpers ---
-  const showFeedback = (type: 'SUCCESS' | 'ERROR', msg: string, duration = 1000) => {
+  const showFeedback = (type: 'SUCCESS' | 'ERROR', msg: string, duration = 1200) => {
     setOverlayStatus(type);
     setFeedbackMsg(msg);
     if (type === 'SUCCESS') {
@@ -86,9 +86,11 @@ const App: React.FC = () => {
         setOrders(data.orders);
         setOrderMap(data.map);
         setStep(AppStep.SCAN_ORDER);
+        audioService.playScanSuccess();
       }
     } catch (err: any) {
       setErrorMsg(err.message || "Ошибка API");
+      audioService.playError();
     } finally {
       setIsLoading(false);
     }
@@ -120,7 +122,7 @@ const App: React.FC = () => {
       if (!order) return;
 
       if (order.status === 'done') {
-        showFeedback('ERROR', 'Уже собран');
+        showFeedback('ERROR', 'Уже собран!');
         return;
       }
 
@@ -156,75 +158,124 @@ const App: React.FC = () => {
   };
 
   const stats = getStats();
+  const progressPercent = stats.total > 0 ? (stats.done / stats.total) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-slate-900 p-4 flex flex-col items-center">
+    <div className="min-h-screen bg-gray-100 font-sans text-slate-900 flex flex-col items-center relative overflow-hidden">
       <ScanOverlay status={overlayStatus} message={feedbackMsg} />
       
-      <div className="w-full max-w-xl space-y-4">
-        
-        {/* Title */}
-        <h1 className="text-2xl font-bold text-slate-900 mb-6">FBS-КИЗ сканер</h1>
+      {/* --- LOGIN SCREEN --- */}
+      {orders.length === 0 && (
+        <div className="flex-1 flex flex-col justify-center items-center w-full max-w-md p-6 animate-slide-up">
+           <div className="bg-white p-8 rounded-3xl shadow-xl w-full border border-gray-100">
+              <div className="flex flex-col items-center mb-8">
+                 <div className="w-16 h-16 bg-fuchsia-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-fuchsia-200">
+                    <QrCode className="text-white w-8 h-8" />
+                 </div>
+                 <h1 className="text-3xl font-bold text-gray-900">FBS Сканер</h1>
+                 <p className="text-gray-500 text-sm mt-1">Подключение к складу</p>
+              </div>
 
-        {/* Inputs Form */}
-        <form onSubmit={handleLoadOrders} className="space-y-4">
-          <input
-            type="password"
-            className="w-full p-3 border border-gray-200 rounded-lg bg-white outline-none focus:border-blue-500 transition-colors"
-            placeholder="API токен WB"
-            value={token}
-            onChange={e => setToken(e.target.value)}
-          />
-          <input
-            type="text"
-            className="w-full p-3 border border-gray-200 rounded-lg bg-white outline-none focus:border-blue-500 transition-colors"
-            placeholder="ID поставки (WB-GI-...)"
-            value={supplyId}
-            onChange={e => setSupplyId(e.target.value)}
-          />
+              <form onSubmit={handleLoadOrders} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">API Токен</label>
+                  <input
+                    type="password"
+                    className="w-full mt-1 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 focus:ring-2 focus:ring-fuchsia-200 transition-all outline-none font-mono text-sm"
+                    value={token}
+                    onChange={e => setToken(e.target.value)}
+                    placeholder="eyJhbGciOi..."
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">ID Поставки</label>
+                  <input
+                    type="text"
+                    className="w-full mt-1 p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-fuchsia-500 focus:ring-2 focus:ring-fuchsia-200 transition-all outline-none font-mono text-sm"
+                    value={supplyId}
+                    onChange={e => setSupplyId(e.target.value)}
+                    placeholder="WB-GI-12345678"
+                  />
+                </div>
+                
+                {errorMsg && (
+                  <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
+                    <AlertCircle className="w-4 h-4 mr-2" />
+                    {errorMsg}
+                  </div>
+                )}
+
+                <div className="pt-2 flex flex-col gap-3">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold rounded-xl shadow-lg shadow-fuchsia-200 transition-all active:scale-[0.98] flex justify-center items-center"
+                  >
+                    {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Начать приемку"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsDemo(!isDemo)}
+                    className={`text-xs text-center py-2 rounded-lg transition-colors ${isDemo ? 'text-fuchsia-600 bg-fuchsia-50 font-bold' : 'text-gray-400 hover:text-gray-600'}`}
+                  >
+                    {isDemo ? 'РЕЖИМ ДЕМО: ВКЛЮЧЕН' : 'Включить демо режим'}
+                  </button>
+                </div>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* --- WORKSPACE SCREEN --- */}
+      {orders.length > 0 && (
+        <div className="w-full max-w-lg flex flex-col h-screen">
           
-          {errorMsg && (
-            <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm flex items-center border border-red-100">
-              <AlertCircle className="w-4 h-4 mr-2" />
-              {errorMsg}
+          {/* Header & Stats */}
+          <div className="bg-white px-6 py-4 shadow-sm z-10 sticky top-0">
+            <div className="flex justify-between items-end mb-2">
+              <div>
+                <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Поставка</h2>
+                <div className="text-xs text-gray-400 font-mono">{supplyId}</div>
+              </div>
+              <div className="text-right">
+                <span className="text-3xl font-black text-fuchsia-600">{stats.done}</span>
+                <span className="text-gray-400 font-medium text-lg"> / {stats.total}</span>
+              </div>
             </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
-            >
-              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Загрузить заказы"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsDemo(!isDemo)}
-              className="px-4 py-2 text-gray-400 text-sm hover:text-gray-600"
-            >
-              {isDemo ? 'Демо ВКЛ' : 'Демо'}
-            </button>
+            {/* Progress Bar */}
+            <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
+               <div 
+                 className="h-full bg-fuchsia-500 transition-all duration-500 ease-out progress-stripes"
+                 style={{ width: `${progressPercent}%` }}
+               />
+            </div>
           </div>
-        </form>
 
-        {/* Loaded Orders Interface */}
-        {orders.length > 0 && (
-          <div className="mt-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {/* Main Content Area */}
+          <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto pb-4">
             
-            {/* Stats */}
-            <div className="flex items-center gap-2 mb-2">
-              <PackageCheck className="w-5 h-5 text-green-600" />
-              <span className="font-bold text-lg">Найдено заказов: {orders.length} шт.</span>
-              {stats.done > 0 && (
-                 <span className="ml-auto text-gray-500 font-medium">Собрано: {stats.done}</span>
-              )}
-            </div>
+            {/* Step 1: Scan Order Placeholder (Only when no active order) */}
+            {!activeOrder && (
+               <div className="flex-1 flex flex-col items-center justify-center text-center animate-slide-up bg-white rounded-3xl border-2 border-dashed border-gray-300 p-8 min-h-[300px]">
+                  <div className="w-32 h-32 bg-gray-50 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                     <PackageCheck className="w-16 h-16 text-gray-300" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-400">Жду сканирования<br/>стикера WB</h3>
+                  <p className="text-gray-400 text-sm mt-2">Наведите сканер на штрихкод товара</p>
+               </div>
+            )}
 
-            {/* Active Task Info - LARGE PHOTO VIEW */}
+            {/* Step 2: Active Order Card */}
             {activeOrder && (
-              <div className="bg-white border-2 border-blue-500 shadow-lg p-4 rounded-xl flex flex-col items-center text-center gap-3 mb-4">
-                 <div className="relative w-48 h-64 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+              <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-fuchsia-100 animate-slide-up flex-1 flex flex-col">
+                 {/* Status Bar */}
+                 <div className="bg-fuchsia-600 text-white text-center py-2 font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2">
+                    <Zap className="w-4 h-4 fill-white animate-bounce" />
+                    Товар найден
+                 </div>
+                 
+                 {/* Image Area */}
+                 <div className="relative h-64 bg-gray-100 flex items-center justify-center overflow-hidden group">
                    {activeOrder.photoUrl ? (
                       <img 
                       src={activeOrder.photoUrl} 
@@ -232,42 +283,54 @@ const App: React.FC = () => {
                         e.currentTarget.style.display = 'none';
                         e.currentTarget.nextElementSibling?.classList.remove('hidden');
                       }}
-                      className="w-full h-full object-cover" 
+                      className="w-full h-full object-contain mix-blend-multiply p-2 transition-transform duration-500 group-hover:scale-105" 
                       alt="Товар" 
                     />
                    ) : null}
-                   
-                   {/* Fallback image if loading fails */}
                    <div className={`absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-400 ${activeOrder.photoUrl ? 'hidden' : ''}`}>
-                      <ImageOff className="w-12 h-12 mb-2" />
-                      <span className="text-xs">Нет фото</span>
+                      <ImageOff className="w-12 h-12 mb-2 opacity-50" />
+                      <span className="text-xs">Фото недоступно</span>
                    </div>
                  </div>
-                 
-                 <div className="w-full">
-                   <div className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-1">Товар найден</div>
-                   <h2 className="text-xl font-bold leading-tight mb-1">{activeOrder.title}</h2>
-                   <div className="text-gray-500 text-sm">Арт: {activeOrder.article}</div>
-                   {activeOrder.stickerId && (
-                     <div className="text-xs text-gray-400 mt-1 font-mono">{activeOrder.stickerId}</div>
-                   )}
+
+                 {/* Details */}
+                 <div className="p-6 flex-1 flex flex-col justify-center">
+                    <div className="text-xs font-bold text-fuchsia-600 uppercase tracking-wider mb-1">
+                       {activeOrder.brand || "Бренд"}
+                    </div>
+                    <h2 className="text-2xl font-bold leading-tight mb-2 text-gray-900 line-clamp-3">
+                       {activeOrder.title}
+                    </h2>
+                    
+                    <div className="flex items-center gap-4 mt-auto pt-4 border-t border-gray-100">
+                       <div>
+                          <div className="text-[10px] uppercase text-gray-400 font-bold">Артикул</div>
+                          <div className="font-mono text-lg font-medium">{activeOrder.article}</div>
+                       </div>
+                       <div className="ml-auto text-right">
+                          <div className="text-[10px] uppercase text-gray-400 font-bold">Баркод</div>
+                          <div className="font-mono text-sm text-gray-500">{activeOrder.stickerId}</div>
+                       </div>
+                    </div>
                  </div>
               </div>
             )}
 
-            {/* Main Scanner Input */}
-            <ScannerInput 
-              onScan={handleScan} 
-              isDisabled={isLoading} 
-              placeholder={activeOrder 
-                ? ">>> 2. ТЕПЕРЬ СКАНИРУЙ КИЗ <<<" 
-                : "1. Сканируй QR стикера WB"}
-            />
+            {/* Input Area (Sticky Bottom) */}
+            <div className="bg-white/80 backdrop-blur rounded-2xl p-2 sticky bottom-0">
+               <ScannerInput 
+                 onScan={handleScan} 
+                 isDisabled={isLoading} 
+                 mode={activeOrder ? 'active' : 'neutral'}
+                 placeholder={activeOrder 
+                   ? "СКАНИРУЙТЕ КИЗ (DataMatrix)" 
+                   : "Сканируйте стикер WB..."}
+               />
+            </div>
 
           </div>
-        )}
-
-      </div>
+        </div>
+      )}
     </div>
   );
 };

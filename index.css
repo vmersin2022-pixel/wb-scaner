@@ -14,6 +14,7 @@
 body {
   overscroll-behavior-y: contain;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #f3f4f6;
 }
 
 /* Hide scrollbar */
@@ -22,14 +23,38 @@ body {
   background: transparent;
 }
 
-/* Animations */
-@keyframes scan-line {
-  0% { transform: translateY(0); opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { transform: translateY(16rem); opacity: 0; }
+/* --- Animations --- */
+
+/* Slide Up Entry */
+@keyframes slide-up {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.animate-scan-line {
-  animation: scan-line 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+/* Pop In (for success icons) */
+@keyframes pop-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pop-in {
+  animation: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Pulse Glow (for active inputs) */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0px rgba(192, 38, 211, 0.2); border-color: #e879f9; }
+  50% { box-shadow: 0 0 0 8px rgba(192, 38, 211, 0.1); border-color: #d946ef; }
+}
+.animate-glow {
+  animation: glow-pulse 2s infinite;
+}
+
+/* Progress Bar Striping */
+.progress-stripes {
+  background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+  background-size: 1rem 1rem;
 }
