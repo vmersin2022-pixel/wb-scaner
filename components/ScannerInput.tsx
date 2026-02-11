@@ -14,15 +14,20 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled, 
   useEffect(() => {
     const focusInput = () => {
       if (!isDisabled && inputRef.current) {
-        // Проверяем, не фокус ли уже на другом элементе ввода
-        if (document.activeElement !== inputRef.current) {
+        // Only verify focus if we aren't editing another input
+        if (document.activeElement?.tagName !== 'INPUT' || document.activeElement === inputRef.current) {
            inputRef.current.focus();
         }
       }
     };
 
-    const interval = setInterval(focusInput, 3000);
-    // При клике в любом месте возвращаем фокус, если это не кнопки
+    // Initial focus
+    focusInput();
+    
+    // Interval check
+    const interval = setInterval(focusInput, 2000);
+    
+    // Click handler to re-focus unless clicking button/other input
     const handleClick = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT') {
@@ -31,7 +36,6 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled, 
     }
 
     window.addEventListener('click', handleClick);
-    focusInput();
 
     return () => {
       clearInterval(interval);
@@ -53,7 +57,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled, 
   };
 
   return (
-    <div className="w-full mt-4">
+    <div className="w-full mt-6">
       <input
         ref={inputRef}
         type="text"
@@ -62,8 +66,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({ onScan, isDisabled, 
         onKeyDown={handleKeyDown}
         autoComplete="off"
         disabled={isDisabled}
-        placeholder={placeholder || "Сканируйте здесь..."}
-        className="w-full p-4 text-lg border-2 border-blue-400 rounded-lg shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-600 transition-all text-gray-700 placeholder-gray-400 bg-white"
+        placeholder={placeholder}
+        className="w-full p-4 text-lg border-2 border-blue-500 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-200 transition-all text-gray-700 placeholder-gray-400 bg-white shadow-sm"
       />
     </div>
   );

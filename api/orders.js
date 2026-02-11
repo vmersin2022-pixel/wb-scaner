@@ -16,21 +16,20 @@ export default async function handler(req, res) {
       'Accept': 'application/json'
     };
 
-    // 1. Используем метод orders/new вместо устаревшего supplies/{id}/orders
-    // Этот метод возвращает все новые сборочные задания
+    // 1. Используем метод orders/new (все новые задания)
     const ordersUrl = `https://marketplace-api.wildberries.ru/api/v3/orders/new`;
     const ordersRes = await fetch(ordersUrl, { headers });
 
     if (!ordersRes.ok) {
       const errText = await ordersRes.text();
-      return res.status(ordersRes.status).json({ error: `WB API Error: ${errText}` });
+      // Если 404 здесь, значит эндпоинт вообще неправильный, но orders/new актуален
+      return res.status(ordersRes.status).json({ error: `WB API Error (Orders): ${errText}` });
     }
 
     const ordersData = await ordersRes.json();
     let rawOrders = ordersData.orders || [];
 
-    // 2. Фильтрация на сервере (так как API отдает всё подряд)
-    // Если supplyId передан, ищем совпадения. Если нет - берем всё.
+    // 2. Фильтрация по supplyId на нашей стороне
     if (supplyId && supplyId.trim() !== '') {
       const target = supplyId.trim().toLowerCase();
       rawOrders = rawOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(target));
@@ -40,14 +39,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ 
         orders: [], 
         map: {}, 
-        message: 'Заказы по данной поставке не найдены' 
+        message: 'Заказы по данной поставке не найдены среди новых' 
       });
     }
 
-    // 3. Получение стикеров (для баркодов)
+    // 3. Получение стикеров (баркодов)
     const orderIds = rawOrders.map((o) => o.id);
     const chunks = [];
-    // Разбиваем по 100 ID, чтобы не превысить лимиты WB
     for (let i = 0; i < orderIds.length; i += 100) {
       chunks.push(orderIds.slice(i, i + 100));
     }
@@ -64,15 +62,16 @@ export default async function handler(req, res) {
 
       if (stickersRes.ok) {
         const stickersData = await stickersRes.json();
-        if (stickersData.data) {
-          allStickers = [...allStickers, ...stickersData.data];
+        // ВАЖНО: поле называется stickers, а не data (согласно документации)
+        if (stickersData.stickers) {
+          allStickers = [...allStickers, ...stickersData.stickers];
         }
       }
-      // Небольшая задержка, чтобы не спамить API
+      // Задержка против лимитов
       await new Promise(r => setTimeout(r, 100)); 
     }
 
-    // 4. Сборка данных
+    // 4. Сборка результата
     const mergedOrders = [];
     const barcodeMap = {};
 
@@ -83,10 +82,10 @@ export default async function handler(req, res) {
       if (stickerObj && stickerObj.partA && stickerObj.partB) {
         stickerCode = `${stickerObj.partA}${stickerObj.partB}`;
       } else {
-        // Fallback если стикер не нашелся, используем ID заказа как ключ (маловероятно для сканера)
         stickerCode = String(ro.id);
       }
       
+      // Фото товара
       const vol = Math.floor(ro.nmId / 100000);
       const part = Math.floor(ro.nmId / 1000);
       const photoUrl = `https://basket-01.wb.ru/vol${vol}/part${part}/${ro.nmId}/images/c246x328/1.jpg`; 
@@ -95,15 +94,17 @@ export default async function handler(req, res) {
         id: ro.id,
         stickerId: stickerCode,
         article: ro.nmId ? ro.nmId.toString() : 'N/A',
-        title: `Товар ${ro.nmId}`, // WB API orders/new не всегда отдает название, берем ID
+        title: `Товар ${ro.nmId}`, 
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,
         photoUrl,
-        isSgtinRequired: true, // В рамках задачи считаем что всем нужен КИЗ
+        isSgtinRequired: true,
         status: 'pending'
       };
 
       mergedOrders.push(order);
+      // Ключи для карты поиска
       barcodeMap[stickerCode] = ro.id;
+      // Иногда сканер читает иначе, можно добавлять вариации если нужно
     });
 
     return res.status(200).json({ orders: mergedOrders, map: barcodeMap });

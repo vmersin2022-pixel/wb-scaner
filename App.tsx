@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -88,7 +88,7 @@ const App: React.FC = () => {
         setStep(AppStep.SCAN_ORDER);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "Ошибка загрузки");
+      setErrorMsg(err.message || "Ошибка API");
     } finally {
       setIsLoading(false);
     }
@@ -100,14 +100,14 @@ const App: React.FC = () => {
     const code = cleanBarcode(rawCode);
     console.log("Scanned:", code);
 
-    // Логика сброса (если нужно начать сначала или отменить)
+    // Сброс
     if (code.toLowerCase() === 'reset' || code.toLowerCase() === 'сброс') {
       setActiveOrder(null);
       setStep(AppStep.SCAN_ORDER);
       return;
     }
 
-    // --- SCAN ORDER ---
+    // --- STEP 1: SCAN ORDER ---
     if (step === AppStep.SCAN_ORDER) {
       const orderId = orderMap[code];
       
@@ -130,15 +130,14 @@ const App: React.FC = () => {
       return;
     }
 
-    // --- SCAN KIZ ---
+    // --- STEP 2: SCAN KIZ ---
     if (step === AppStep.SCAN_KIZ && activeOrder) {
-      // Защита от повторного сканирования того же QR заказа
       if (orderMap[code]) {
          showFeedback('ERROR', 'Это QR заказа! Нужен КИЗ.');
          return;
       }
 
-      if (code.length < 5) { // Простая валидация
+      if (code.length < 5) {
         showFeedback('ERROR', 'Короткий код');
         return;
       }
@@ -159,122 +158,89 @@ const App: React.FC = () => {
   const stats = getStats();
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-4">
+    <div className="min-h-screen bg-gray-50 font-sans text-slate-900 p-4 flex flex-col items-center">
       <ScanOverlay status={overlayStatus} message={feedbackMsg} />
       
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="w-full max-w-xl space-y-4">
         
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">FBS-КИЗ сканер</h1>
-          <p className="text-sm text-slate-500">Версия 1.1 • {isDemo ? 'Демо режим' : 'Live API'}</p>
-        </div>
+        {/* Title */}
+        <h1 className="text-2xl font-bold text-slate-900 mb-6">FBS-КИЗ сканер</h1>
 
-        {/* Configuration Card */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-           <form onSubmit={handleLoadOrders} className="space-y-4">
-              <div>
-                <input
-                  type="password"
-                  className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400"
-                  placeholder="API токен WB"
-                  value={token}
-                  onChange={e => setToken(e.target.value)}
-                />
-              </div>
-              
-              <div>
-                <input
-                  type="text"
-                  className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400"
-                  placeholder="ID поставки (WB-GI-...)"
-                  value={supplyId}
-                  onChange={e => setSupplyId(e.target.value)}
-                />
-              </div>
+        {/* Inputs Form */}
+        <form onSubmit={handleLoadOrders} className="space-y-4">
+          <input
+            type="password"
+            className="w-full p-3 border border-gray-200 rounded-lg bg-white outline-none focus:border-blue-500 transition-colors"
+            placeholder="API токен WB"
+            value={token}
+            onChange={e => setToken(e.target.value)}
+          />
+          <input
+            type="text"
+            className="w-full p-3 border border-gray-200 rounded-lg bg-white outline-none focus:border-blue-500 transition-colors"
+            placeholder="ID поставки (WB-GI-...)"
+            value={supplyId}
+            onChange={e => setSupplyId(e.target.value)}
+          />
+          
+          {errorMsg && (
+            <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm flex items-center border border-red-100">
+              <AlertCircle className="w-4 h-4 mr-2" />
+              {errorMsg}
+            </div>
+          )}
 
-              {errorMsg && (
-                <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm flex items-center">
-                  <AlertCircle className="w-4 h-4 mr-2" />
-                  {errorMsg}
-                </div>
-              )}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Загрузить заказы"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDemo(!isDemo)}
+              className="px-4 py-2 text-gray-400 text-sm hover:text-gray-600"
+            >
+              {isDemo ? 'Демо ВКЛ' : 'Демо'}
+            </button>
+          </div>
+        </form>
 
-              <div className="flex gap-3">
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="flex-1 py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-sm transition-colors flex justify-center items-center"
-                >
-                  {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Загрузить заказы"}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => setIsDemo(!isDemo)}
-                  className="px-4 py-3 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 font-medium text-sm"
-                >
-                  {isDemo ? 'Выкл Демо' : 'Демо'}
-                </button>
-              </div>
-           </form>
-        </div>
-
-        {/* Stats & Scanner Area (Visible only when orders loaded) */}
+        {/* Loaded Orders Interface */}
         {orders.length > 0 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="mt-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
             
-            {/* Stats Bar */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center justify-between">
-               <div>
-                 <div className="text-sm text-gray-500 font-medium">Найдено в поставке</div>
-                 <div className="text-2xl font-bold text-slate-900">{orders.length} шт.</div>
-               </div>
-               <div className="text-right">
-                 <div className="text-sm text-gray-500 font-medium">Собрано</div>
-                 <div className={`text-2xl font-bold ${stats.done === stats.total ? 'text-green-600' : 'text-blue-600'}`}>
-                   {stats.done} <span className="text-gray-300 text-lg">/</span> {stats.total}
-                 </div>
-               </div>
+            {/* Stats */}
+            <div className="flex items-center gap-2 mb-2">
+              <PackageCheck className="w-5 h-5 text-green-600" />
+              <span className="font-bold text-lg">Найдено заказов: {orders.length} шт.</span>
+              {stats.done > 0 && (
+                 <span className="ml-auto text-gray-500 font-medium">Собрано: {stats.done}</span>
+              )}
             </div>
 
-            {/* Active Task Card */}
-            {activeOrder ? (
-               <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-xl flex gap-4 items-start">
-                  <div className="w-20 h-24 bg-white rounded-lg shadow-sm overflow-hidden flex-shrink-0">
-                    <img src={activeOrder.photoUrl} className="w-full h-full object-cover" alt="" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="inline-block px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded mb-2">ШАГ 2: СКАНИРУЙ КИЗ</div>
-                    <h3 className="font-bold text-slate-800 leading-tight mb-1">{activeOrder.title}</h3>
-                    <p className="text-sm text-slate-500 mb-2">{activeOrder.article}</p>
-                    <p className="text-lg font-bold text-slate-900">{activeOrder.price} ₽</p>
-                  </div>
-               </div>
-            ) : (
-               <div className="bg-white border-2 border-dashed border-gray-300 p-6 rounded-xl text-center text-gray-500">
-                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                  <p>Ожидание сканирования стикера WB...</p>
-               </div>
+            {/* Active Task Info */}
+            {activeOrder && (
+              <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg flex gap-4 mb-2">
+                 <img src={activeOrder.photoUrl} className="w-16 h-20 object-cover rounded bg-white" alt="Товар" />
+                 <div>
+                   <div className="text-xs font-bold text-blue-600 uppercase mb-1">Ожидается КИЗ</div>
+                   <div className="font-bold leading-tight">{activeOrder.title}</div>
+                   <div className="text-sm text-gray-500">{activeOrder.article}</div>
+                 </div>
+              </div>
             )}
 
             {/* Main Scanner Input */}
             <ScannerInput 
               onScan={handleScan} 
               isDisabled={isLoading} 
-              placeholder={
-                activeOrder 
-                ? ">>> СКАНИРУЙ КИЗ (DataMatrix) <<<" 
-                : "1. Сканируй QR стикера WB..."
-              }
+              placeholder={activeOrder 
+                ? ">>> 2. Теперь сканируй КИЗ (DataMatrix) <<<" 
+                : "1. Сканируй QR стикера WB -> 2. Сканируй КИЗ"}
             />
-
-            {/* Instruction Text */}
-            <div className="text-center text-gray-400 text-sm">
-              {activeOrder 
-                ? "Найдите квадратный код DataMatrix на упаковке товара" 
-                : "Возьмите товар и отсканируйте QR-код на этикетке Wildberries"}
-            </div>
 
           </div>
         )}
