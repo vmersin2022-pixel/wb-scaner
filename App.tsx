@@ -4,7 +4,7 @@ import { fetchSupplyOrders, linkKizToOrder, cleanBarcode } from './services/wbSe
 import { audioService } from './services/audioService';
 import { ScannerInput } from './components/ScannerInput';
 import { ScanOverlay } from './components/ScanOverlay';
-import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, PackageCheck, ImageOff, Box, QrCode, Zap, X, ScanBarcode, ClipboardList, CheckCircle2, Search } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -21,6 +21,7 @@ const App: React.FC = () => {
   
   // Navigation State
   const [activeTab, setActiveTab] = useState<'SCANNER' | 'LIST'>('SCANNER');
+  const [listSearch, setListSearch] = useState('');
 
   // Feedback State
   const [overlayStatus, setOverlayStatus] = useState<'SUCCESS' | 'ERROR' | null>(null);
@@ -133,6 +134,17 @@ const App: React.FC = () => {
       return aDone ? 1 : -1;
     });
   }, [orders]);
+
+  const filteredGroups = useMemo(() => {
+    if (!listSearch) return groupedOrders;
+    const q = listSearch.toLowerCase();
+    return groupedOrders.filter(g => 
+      g.vendorCode.toLowerCase().includes(q) || 
+      g.title.toLowerCase().includes(q) || 
+      g.brand.toLowerCase().includes(q) ||
+      g.size.toLowerCase().includes(q)
+    );
+  }, [groupedOrders, listSearch]);
 
   // --- Handlers ---
   const handleLoadOrders = async (e: React.FormEvent) => {
@@ -425,66 +437,95 @@ const App: React.FC = () => {
 
             {/* --- TAB 2: PICK LIST --- */}
             {activeTab === 'LIST' && (
-               <div className="p-4 flex flex-col gap-3">
-                  <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1 px-1">Задание на сборку</h3>
-                  
-                  {groupedOrders.map((group) => {
-                     const isDone = group.done === group.total;
-                     return (
-                        <div 
-                           key={group.key}
-                           className={`bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4 transition-all ${isDone ? 'opacity-60 grayscale-[0.5]' : ''}`}
-                        >
-                           {/* Photo Thumb */}
-                           <div className="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 relative">
-                              {group.photoUrl ? (
-                                 <img src={group.photoUrl} className="w-full h-full object-cover" alt="" />
-                              ) : (
-                                 <div className="w-full h-full flex items-center justify-center text-gray-300">
-                                    <Box className="w-6 h-6" />
-                                 </div>
-                              )}
-                              {isDone && (
-                                 <div className="absolute inset-0 bg-emerald-500/50 flex items-center justify-center">
-                                    <CheckCircle2 className="text-white w-8 h-8 drop-shadow-md" />
-                                 </div>
-                              )}
-                           </div>
+               <div className="p-4 flex flex-col gap-3 min-h-full">
+                  <div className="flex items-center justify-between px-1 mb-1">
+                     <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider">Задание на сборку</h3>
+                  </div>
 
-                           {/* Info */}
-                           <div className="flex-1 flex flex-col justify-center min-w-0">
-                              <div className="flex items-start justify-between">
-                                 <div>
-                                    <div className="text-xs text-gray-400 font-bold line-clamp-1">{group.brand}</div>
-                                    <div className="font-bold text-gray-900 leading-tight truncate text-lg">{group.vendorCode}</div>
-                                 </div>
-                              </div>
-                              
-                              <div className="mt-2 flex items-center gap-3">
-                                 {group.size && (
-                                    <div className="bg-gray-100 px-2 py-0.5 rounded-md text-sm font-bold text-gray-700 border border-gray-200">
-                                       {group.size}
+                  {/* Search Filter */}
+                  <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 sticky top-0 z-10">
+                     <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input 
+                           type="text" 
+                           placeholder="Поиск по артикулу, размеру..." 
+                           className="w-full pl-9 pr-8 py-2 bg-gray-50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-fuchsia-100 transition-all placeholder:text-gray-400"
+                           value={listSearch}
+                           onChange={e => setListSearch(e.target.value)}
+                        />
+                        {listSearch && (
+                           <button onClick={() => setListSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1">
+                              <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+                           </button>
+                        )}
+                     </div>
+                  </div>
+                  
+                  {filteredGroups.length === 0 ? (
+                     <div className="text-center py-10 text-gray-400">
+                        {listSearch ? 'Ничего не найдено' : 'Список пуст'}
+                     </div>
+                  ) : (
+                     filteredGroups.map((group) => {
+                        const isDone = group.done === group.total;
+                        return (
+                           <div 
+                              key={group.key}
+                              className={`bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4 transition-all ${isDone ? 'opacity-60 grayscale-[0.5]' : ''}`}
+                           >
+                              {/* Photo Thumb */}
+                              <div className="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 relative">
+                                 {group.photoUrl ? (
+                                    <img src={group.photoUrl} className="w-full h-full object-cover" alt="" />
+                                 ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                       <Box className="w-6 h-6" />
                                     </div>
                                  )}
-                                 <div className="text-xs text-gray-400 truncate flex-1">
-                                    {group.title}
+                                 {isDone && (
+                                    <div className="absolute inset-0 bg-emerald-500/50 flex items-center justify-center">
+                                       <CheckCircle2 className="text-white w-8 h-8 drop-shadow-md" />
+                                    </div>
+                                 )}
+                              </div>
+
+                              {/* Info */}
+                              <div className="flex-1 flex flex-col justify-center min-w-0">
+                                 <div className="flex items-start justify-between">
+                                    <div className="w-full">
+                                       <div className="text-xs text-gray-400 font-bold line-clamp-1">{group.brand}</div>
+                                       <div className="font-bold text-gray-900 leading-tight truncate text-lg">{group.vendorCode}</div>
+                                    </div>
+                                 </div>
+                                 
+                                 <div className="mt-2 flex items-center gap-3">
+                                    {group.size && (
+                                       <div className="bg-gray-100 px-2 py-0.5 rounded-md text-sm font-bold text-gray-700 border border-gray-200 shrink-0">
+                                          {group.size}
+                                       </div>
+                                    )}
+                                    <div className="text-xs text-gray-400 truncate flex-1">
+                                       {group.title}
+                                    </div>
                                  </div>
                               </div>
-                           </div>
 
-                           {/* Counter */}
-                           <div className="flex flex-col items-center justify-center pl-2 border-l border-gray-100 w-16">
-                              <span className={`text-2xl font-black ${isDone ? 'text-emerald-500' : 'text-fuchsia-600'}`}>
-                                 {group.done}
-                              </span>
-                              <div className="h-px w-6 bg-gray-200 my-0.5"></div>
-                              <span className="text-gray-400 font-bold text-sm">
-                                 {group.total}
-                              </span>
+                              {/* Counter */}
+                              <div className="flex flex-col items-center justify-center pl-2 border-l border-gray-100 w-14 shrink-0">
+                                 <span className={`text-2xl font-black ${isDone ? 'text-emerald-500' : 'text-fuchsia-600'}`}>
+                                    {group.done}
+                                 </span>
+                                 <div className="h-px w-6 bg-gray-200 my-0.5"></div>
+                                 <span className="text-gray-400 font-bold text-sm">
+                                    {group.total}
+                                 </span>
+                              </div>
                            </div>
-                        </div>
-                     );
-                  })}
+                        );
+                     })
+                  )}
+                  {/* Padding for bottom nav */}
+                  <div className="h-10"></div>
                </div>
             )}
           </div>

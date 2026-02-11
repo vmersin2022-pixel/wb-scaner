@@ -47,11 +47,11 @@ app.post('/api/orders', async (req, res) => {
         fetchCount++;
     } while (next && next !== 0 && fetchCount < MAX_REQUESTS);
 
-    // 2. Filter by Supply
+    // 2. Filter by Supply (Partial Match)
     let filteredOrders = [];
     if (supplyId && supplyId.trim() !== '') {
       const target = supplyId.trim().toLowerCase();
-      filteredOrders = allOrders.filter(o => o.supplyId && o.supplyId.toLowerCase() === target);
+      filteredOrders = allOrders.filter(o => o.supplyId && o.supplyId.toLowerCase().includes(target));
     } else {
       filteredOrders = allOrders;
     }
