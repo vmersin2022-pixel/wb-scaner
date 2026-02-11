@@ -1,14 +1,9 @@
 meta:
-  environment: node
-  toolchain: npm
-  version: 1.0
+  name: vb-skaner
+  toolchain:
+    name: node
+    version: 20
 build:
-  requirements: package.json
-  script: |
-    npm install
-    npm run build
+  command: npm install && npm run build
 run:
-  script: npm start
-  persistence: []
-  ports:
-    - 80
+  command: npm run dev
