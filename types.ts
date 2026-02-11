@@ -1,7 +1,8 @@
 export interface WBOrder {
   id: number; // Order ID (rid)
   stickerId: string; // The barcode string on the WB sticker
-  article: string; // nmId or vendor code
+  article: string; // nmId (WB Article)
+  vendorCode: string; // Vendor/Seller Article
   title: string;
   brand?: string;
   price: number;

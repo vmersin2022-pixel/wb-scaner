@@ -167,7 +167,8 @@ export default async function handler(req, res) {
       mergedOrders.push({
         id: ro.id,
         stickerId: displaySticker,
-        article: ro.nmId ? ro.nmId.toString() : 'N/A',
+        article: ro.nmId ? ro.nmId.toString() : 'N/A', // WB Article (nmId)
+        vendorCode: ro.article || '', // Vendor Article (from FBS API 'article' field)
         title: finalTitle,
         brand: finalBrand,
         price: ro.convertedPrice ? ro.convertedPrice / 100 : 0,

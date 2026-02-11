@@ -10,7 +10,8 @@ export const cleanBarcode = (code: string): string => {
 export const demoOrders: WBOrder[] = Array.from({ length: 15 }).map((_, i) => ({
   id: parseInt(randId()),
   stickerId: `WB-${Math.floor(Math.random() * 1000)}`,
-  article: `ART-${1000 + i}`,
+  article: `ART-${1000 + i}`, // WB Article (nmId) mock
+  vendorCode: `VENDOR-CODE-2025-${i + 1}`, // Vendor Article mock
   title: `Wildberries Product Test Item ${i + 1}`,
   brand: `Brand #${i + 1}`,
   price: Math.floor(Math.random() * 5000) + 500,

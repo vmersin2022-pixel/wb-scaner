@@ -295,16 +295,21 @@ const App: React.FC = () => {
 
                  {/* Details */}
                  <div className="p-6 flex-1 flex flex-col justify-center">
-                    <div className="text-xs font-bold text-fuchsia-600 uppercase tracking-wider mb-1">
-                       {activeOrder.brand || "Бренд"}
+                    {/* Brand and Title (Secondary) */}
+                    <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex flex-wrap gap-1">
+                       <span>{activeOrder.brand || "Бренд"}</span>
+                       <span>•</span>
+                       <span className="line-clamp-1 text-gray-500">{activeOrder.title}</span>
                     </div>
-                    <h2 className="text-2xl font-bold leading-tight mb-2 text-gray-900 line-clamp-3">
-                       {activeOrder.title}
+
+                    {/* VENDOR CODE (Main) */}
+                    <h2 className="text-4xl font-black leading-none mb-4 text-gray-900 break-words tracking-tight">
+                       {activeOrder.vendorCode || "Без Артикула"}
                     </h2>
                     
                     <div className="flex items-center gap-4 mt-auto pt-4 border-t border-gray-100">
                        <div>
-                          <div className="text-[10px] uppercase text-gray-400 font-bold">Артикул</div>
+                          <div className="text-[10px] uppercase text-gray-400 font-bold">Артикул WB</div>
                           <div className="font-mono text-lg font-medium">{activeOrder.article}</div>
                        </div>
                        <div className="ml-auto text-right">
