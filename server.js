@@ -198,6 +198,32 @@ app.post('/api/orders', async (req, res) => {
 
   try {
     const headers = { 'Authorization': token, 'Content-Type': 'application/json' };
+
+    // --- NEW: CHECK SUPPLY STATUS ---
+    if (supplyId) {
+        try {
+            const sid = supplyId.trim();
+            // Fetch Supply Info
+            const sRes = await fetch(`https://marketplace-api.wildberries.ru/api/v3/supplies/${sid}`, { headers });
+            
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                // Check if supply is closed or done
+                if (sData.closedAt || sData.done === true) {
+                    return res.status(409).json({ 
+                        error: "Поставка уже закрыта (передана в доставку).",
+                        isClosed: true 
+                    });
+                }
+            } else if (sRes.status === 404) {
+                 // Warning: Supply ID might be wrong, but we continue to try finding orders anyway
+                 // just in case user entered a Name instead of ID, or API quirk.
+                 console.warn(`Supply ${sid} not found in supplies API, trying orders...`);
+            }
+        } catch (e) {
+            console.warn("Supply status check failed (proceeding to orders):", e.message);
+        }
+    }
     
     // A. Fetch Orders
     let allOrders = [];

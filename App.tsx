@@ -141,6 +141,11 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!token && !isDemo) return setErrorMsg("Введите API Token");
     
+    // Clear previous state immediately to avoid showing old data if this load fails
+    setOrders([]);
+    setOrderMap({});
+    setActiveOrder(null);
+    
     if (!isDemo) {
         localStorage.setItem('wb_token', token);
         localStorage.setItem('wb_supply_id', supplyId);
