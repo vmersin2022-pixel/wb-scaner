@@ -231,50 +231,47 @@ app.post('/api/orders', async (req, res) => {
         return res.status(502).json({ error: "Ошибка соединения с WB API" });
     }
 
-    if (allOrders.length === 0) {
-        return res.json({ orders: [], map: {} });
-    }
-
     // B. Filter
     // 1. By Supply ID
     // 2. EXCLUDE Canceled (isCancel === true)
     // 3. EXCLUDE New/Unconfirmed (userStatus === 0) - because user wants "Assembly" items only
     // 4. EXCLUDE Sold/Delivering (userStatus > 1) just in case
-    let filteredOrders = allOrders;
-    
+    let filteredOrders = [];
     if (supplyId && supplyId.trim()) {
         const t = supplyId.trim().toLowerCase();
         filteredOrders = allOrders.filter(o => {
-            // Must match Supply ID
             const matchSupply = o.supplyId && o.supplyId.toLowerCase().includes(t);
             if (!matchSupply) return false;
 
-            // Strict Status Filters
             if (o.isCancel === true) return false; // Exclude client cancellations
             
-            // userStatus 0 = New (Not yet on assembly)
-            // userStatus 1 = On Assembly
-            // We only want 1.
+            // userStatus 0 = New, 1 = On Assembly
             if (typeof o.userStatus !== 'undefined') {
-                 if (o.userStatus === 0) return false; // Hide "New" (6 items in screenshot)
-                 if (o.userStatus >= 2) return false;  // Hide "Delivering/Sold"
+                 if (o.userStatus === 0) return false; 
+                 if (o.userStatus >= 2) return false; 
             }
-
             return true;
         });
+    } else {
+        // Fallback for demo/no supply (though supply is required by UI)
+        filteredOrders = allOrders; 
     }
 
     if (filteredOrders.length === 0) {
         return res.json({ orders: [], map: {} });
     }
 
-    // C. Fetch Stickers
+    // C. Fetch Stickers (PARALLELIZED)
     const orderIds = filteredOrders.map(o => o.id);
     const stickersMap = {}; 
     
-    // Chunk requests for stickers
+    const stickerChunks = [];
     for (let i = 0; i < orderIds.length; i += 100) {
-        const chunk = orderIds.slice(i, i + 100);
+        stickerChunks.push(orderIds.slice(i, i + 100));
+    }
+
+    // Run sticker requests in parallel
+    await Promise.all(stickerChunks.map(async (chunk) => {
         try {
             const r = await fetch(`https://marketplace-api.wildberries.ru/api/v3/orders/stickers?type=svg&width=58&height=40`, {
                 method: 'POST', headers, body: JSON.stringify({ orders: chunk })
@@ -289,10 +286,13 @@ app.post('/api/orders', async (req, res) => {
                     stickersMap[s.orderId] = code;
                 });
             }
-        } catch (e) {}
-    }
+        } catch (e) {
+            console.error("Sticker fetch chunk error", e.message);
+        }
+    }));
 
-    // D. Fetch Content
+
+    // D. Fetch Content (PARALLELIZED)
     const nmIds = [...new Set(filteredOrders.map(o => o.nmId))];
     const missingNmIds = [];
     const contentMap = await getCachedContent(nmIds);
@@ -300,9 +300,13 @@ app.post('/api/orders', async (req, res) => {
     nmIds.forEach(nm => { if (!contentMap[nm]) missingNmIds.push(nm); });
 
     if (missingNmIds.length > 0) {
-        // Chunk requests for content
+        const contentChunks = [];
         for (let i = 0; i < missingNmIds.length; i += 100) {
-            const chunk = missingNmIds.slice(i, i + 100);
+            contentChunks.push(missingNmIds.slice(i, i + 100));
+        }
+
+        // Run content requests in parallel
+        await Promise.all(contentChunks.map(async (chunk) => {
             try {
                 const r = await fetch('https://content-api.wildberries.ru/content/v2/get/cards/list', {
                     method: 'POST', headers, body: JSON.stringify({ settings: { cursor: { limit: 100 }, filter: { withPhoto: -1, nmID: chunk } } })
@@ -324,12 +328,15 @@ app.post('/api/orders', async (req, res) => {
                             sizes_json: card.sizes || []
                         };
                         itemsToCache.push(info);
+                        // Update local map immediately so we don't wait for DB write
                         contentMap[card.nmID] = info;
                     }
                     if (itemsToCache.length > 0) await upsertContent(itemsToCache);
                 }
-            } catch (e) { }
-        }
+            } catch (e) { 
+                console.error("Content fetch chunk error", e.message);
+            }
+        }));
     }
 
     // F. Final Assembly
@@ -365,7 +372,8 @@ app.post('/api/orders', async (req, res) => {
         }
 
         // Save order structure to DB/Memory for later
-        await upsertOrder({
+        // We do this asynchronously without awaiting to speed up response
+        upsertOrder({
             id: order.id,
             supply_id: order.supplyId,
             nm_id: order.nmId,
@@ -380,7 +388,7 @@ app.post('/api/orders', async (req, res) => {
             status: status,
             scanned_kiz: kiz,
             token: token
-        });
+        }).catch(e => console.error("Async upsert error", e.message));
 
         finalOrders.push({
             id: order.id,
