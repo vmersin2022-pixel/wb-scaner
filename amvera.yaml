@@ -1,0 +1,14 @@
+meta:
+  environment: node
+  toolchain: npm
+  version: 1.0
+build:
+  requirements: package.json
+  script: |
+    npm install
+    npm run build
+run:
+  script: npm start
+  persistence: []
+  ports:
+    - 80
