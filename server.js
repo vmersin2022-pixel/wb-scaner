@@ -368,6 +368,7 @@ app.post('/api/orders', async (req, res) => {
         // We'll save clean for better reading in DB.
         upsertOrder({
             id: order.id,
+            srid: order.rid,
             supply_id: order.supplyId,
             nm_id: order.nmId,
             sticker_id: cleanSticker,

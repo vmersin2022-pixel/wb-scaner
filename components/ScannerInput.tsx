@@ -22,17 +22,20 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // --- KIOSK MODE: AUTO FOCUS INPUT ---
+  // --- FOCUS MANAGEMENT ---
   const focusInput = () => {
       if (!showCamera && !isDisabled && inputRef.current) {
-          inputRef.current.focus();
+          // Prevent scroll jumping on focus
+          inputRef.current.focus({ preventScroll: true });
       }
   };
 
   useEffect(() => {
     focusInput();
-    const handleRefocus = () => { setTimeout(focusInput, 50); };
-    const interval = setInterval(focusInput, 2000); 
+    
+    // Aggressive refocus to keep scanner active
+    const handleRefocus = () => setTimeout(focusInput, 50);
+    const interval = setInterval(focusInput, 3000); 
     
     window.addEventListener('click', handleRefocus);
     window.addEventListener('focus', handleRefocus);
@@ -45,13 +48,13 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   }, [showCamera, isDisabled]);
 
   // --- AUTO-SUBMIT LOGIC (DEBOUNCE) ---
+  // This solves the issue where scanners don't send 'Enter'
   useEffect(() => {
-    // Если поле пустое, ничего не делаем
     if (!value) return;
 
-    // Таймер: если ввода нет 200мс, считаем что сканер закончил
+    // If input stops for 200ms, assume scan is complete
     const timeoutId = setTimeout(() => {
-        if (value.trim().length >= 3) { // Минимальная длина для защиты от случайных нажатий
+        if (value.trim().length >= 3) { 
             onScan(value.trim());
             setValue('');
         }
@@ -142,6 +145,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
             autoCorrect="off"
             spellCheck="false"
             autoFocus
+            onBlur={() => {
+                // Try to reclaim focus immediately if lost
+                if(!showCamera && !isDisabled) setTimeout(() => inputRef.current?.focus(), 10);
+            }}
         />
 
         {/* Camera Toggle */}
